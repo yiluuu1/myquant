@@ -3,6 +3,7 @@ import os
 
 
 def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='data/daily_K'):
+
     """
     codes: 股票代码列表；
     start_date, end_date: 开始结束时间
@@ -49,6 +50,31 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data['vol'] = data.eval('vol/adj_factor')
         except:
             pass
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+    
+def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/daily_basic'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'basic-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data).reset_index(drop=True)
+    
     if fields is None:
         return data
     else:
