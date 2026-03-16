@@ -80,4 +80,3 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
     else:
         return data[fields]
     
-def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/daily_basic'):
