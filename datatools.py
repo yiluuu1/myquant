@@ -79,4 +79,51 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
         return data
     else:
         return data[fields]
+
+def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/index/index_daily_K'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in codes:
+        try:
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), columns=fields1)
+            tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data).reset_index(drop=True)
     
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+    
+def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/index/index_daily_basic'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in codes:
+        try:
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), columns=fields1)
+            tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data).reset_index(drop=True)
+    
+    if fields is None:
+        return data
+    else:
+        return data[fields]
