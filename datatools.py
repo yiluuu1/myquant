@@ -92,7 +92,7 @@ def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-
     data = []
     for d in codes:
         try:
-            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), columns=fields1)
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields1)
             tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
