@@ -29,8 +29,7 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).reset_index(drop=True)
-
+    data = pd.concat(data)
     # 复权操作
     if fq is not None:
         if fq == 'post':
@@ -41,7 +40,7 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data1['latest_factor'] = data1['ts_code'].map(latest_factor)
             data['adj_factor'] = data1.eval('adj_factor/latest_factor')
         
-        for col in ['open', 'high', 'low', 'close']:
+        for col in ['open', 'high', 'low', 'close','pre_close']:
             try:
                 data[col] = data.eval(f'{col}*adj_factor')
             except:
@@ -50,6 +49,7 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data['vol'] = data.eval('vol/adj_factor')
         except:
             pass
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
     if fields is None:
         return data
     else:
@@ -73,8 +73,8 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).reset_index(drop=True)
-    
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
     if fields is None:
         return data
     else:
