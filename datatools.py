@@ -116,7 +116,7 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
     data = []
     for d in codes:
         try:
-            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), columns=fields1)
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields1)
             tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
@@ -127,3 +127,79 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
         return data
     else:
         return data[fields]
+
+def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/moneyflow'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'moneyflow-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+
+def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/rzrq'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'margin-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+
+def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/toplist'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'toplist-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+    
