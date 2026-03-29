@@ -202,4 +202,51 @@ def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
         return data
     else:
         return data[fields]
+
+def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='data/report_rc'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    try:
+        data = pd.read_feather(os.path.join(data_path, f'report-{year}Q4.ftr'), columns=fields1)
+        if isinstance(codes, list):
+            data = data[data['ts_code'].isin(codes)]
+        if start_date is not None and end_date is not None:
+            data = data[data['report_date'].between(start_date, end_date)]
+    except FileNotFoundError:
+        pass
+    data = data.sort_values(['ts_code', 'report_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
     
+def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet'):
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'end_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date, freq='QE'):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'sheet-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'end_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
