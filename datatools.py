@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-
+from datetime import datetime
 
 def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='data/daily_K'):
 
@@ -57,17 +57,15 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
     
 def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/daily_basic'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
     for d in pd.date_range(start=start_date, end=end_date):
         try:
-            tmp = pd.read_feather(os.path.join(data_path, f'basic-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            tmp = pd.read_feather(os.path.join(data_path, f'basic-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
             if isinstance(codes, list):
                 tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
@@ -82,17 +80,15 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
 
 def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/index/index_daily_K'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
     for d in codes:
         try:
-            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields1)
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields)
             tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
@@ -106,17 +102,15 @@ def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-
     
 def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/index/index_daily_basic'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
     for d in codes:
         try:
-            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields1)
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields)
             tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
@@ -130,17 +124,15 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
 
 def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/moneyflow'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
     for d in pd.date_range(start=start_date, end=end_date):
         try:
-            tmp = pd.read_feather(os.path.join(data_path, f'moneyflow-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            tmp = pd.read_feather(os.path.join(data_path, f'moneyflow-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
             if isinstance(codes, list):
                 tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
@@ -155,17 +147,15 @@ def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
 
 def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/rzrq'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
     for d in pd.date_range(start=start_date, end=end_date):
         try:
-            tmp = pd.read_feather(os.path.join(data_path, f'margin-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            tmp = pd.read_feather(os.path.join(data_path, f'margin-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
             if isinstance(codes, list):
                 tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
@@ -180,17 +170,15 @@ def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=
 
 def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/toplist'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
     for d in pd.date_range(start=start_date, end=end_date):
         try:
-            tmp = pd.read_feather(os.path.join(data_path, f'toplist-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            tmp = pd.read_feather(os.path.join(data_path, f'toplist-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
             if isinstance(codes, list):
                 tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
@@ -205,15 +193,13 @@ def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
 
 def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='data/report_rc'):
     # 筛选字段
-    fields1 = None
     if fields is not None:
-        fix_fields = ['ts_code', 'trade_date']
+        fix_fields = ['ts_code','report_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     try:
-        data = pd.read_feather(os.path.join(data_path, f'report-{year}Q4.ftr'), columns=fields1)
+        data = pd.read_feather(os.path.join(data_path, f'report-{year}Q4.ftr'), columns=fields)
         if isinstance(codes, list):
             data = data[data['ts_code'].isin(codes)]
         if start_date is not None and end_date is not None:
@@ -225,28 +211,48 @@ def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fie
         return data
     else:
         return data[fields]
-    
+
 def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet'):
+    def get_report_date(date_input):
+        dt = pd.to_datetime(date_input)
+        year = dt.year
+        month = dt.month
+        if month in [11, 12]:
+            return f"{year}-09-30"
+        elif month in [1, 2, 3, 4]:
+            return f"{year-1}-09-30"
+        elif month in [5, 6, 7, 8]:
+            return f"{year}-03-31"
+        elif month in [9, 10]:
+            return f"{year}-06-30"
+        else:
+            return None  # 异常情况
     # 筛选字段
-    fields1 = None
     if fields is not None:
-        fix_fields = ['ts_code', 'end_date']
+        fix_fields = ['ts_code', 'end_date', 'ann_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
-        fields1 = fields.copy()
 
     # 提取数据
     data = []
-    for d in pd.date_range(start=start_date, end=end_date, freq='QE'):
+    for d in pd.date_range(start=get_report_date(start_date), end=get_report_date(end_date), freq='QE'):
         try:
-            tmp = pd.read_feather(os.path.join(data_path, f'sheet-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            tmp = pd.read_feather(os.path.join(data_path, f'sheet-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
             if isinstance(codes, list):
                 tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data)
-    data = data.sort_values(['ts_code', 'end_date']).reset_index(drop=True)
+    
+    data = data.sort_values(['ts_code', 'ann_date']).reset_index(drop=True).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    data['ann_date'] = pd.to_datetime(data['ann_date'])
+    data = data.set_index(['ts_code', 'ann_date']).reindex(
+        pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
+        names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
+    data = data[data['ann_date'].between(start_date, end_date)]
+    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+    data = data[data['ann_date'].isin(trade_cal)]
     if fields is None:
-        return data
+        return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     else:
-        return data[fields]
+        return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
