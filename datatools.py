@@ -244,7 +244,52 @@ def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
             continue
     data = pd.concat(data)
     
-    data = data.sort_values(['ts_code', 'ann_date']).reset_index(drop=True).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    data = data.sort_values(['ts_code', 'ann_date']).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    data['ann_date'] = pd.to_datetime(data['ann_date'])
+    data = data.set_index(['ts_code', 'ann_date']).reindex(
+        pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
+        names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
+    data = data[data['ann_date'].between(start_date, end_date)]
+    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+    data = data[data['ann_date'].isin(trade_cal)]
+    if fields is None:
+        return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    else:
+        return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    
+def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet_ttm'):
+    def get_report_date(date_input):
+        dt = pd.to_datetime(date_input)
+        year = dt.year
+        month = dt.month
+        if month in [11, 12]:
+            return f"{year}-09-30"
+        elif month in [1, 2, 3, 4]:
+            return f"{year-1}-09-30"
+        elif month in [5, 6, 7, 8]:
+            return f"{year}-03-31"
+        elif month in [9, 10]:
+            return f"{year}-06-30"
+        else:
+            return None  # 异常情况
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'end_date', 'ann_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=get_report_date(start_date), end=get_report_date(end_date), freq='QE'):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'sheet_ttm-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    
+    data = data.sort_values(['ts_code', 'ann_date']).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
     data['ann_date'] = pd.to_datetime(data['ann_date'])
     data = data.set_index(['ts_code', 'ann_date']).reindex(
         pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
