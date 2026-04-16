@@ -191,7 +191,7 @@ def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
     else:
         return data[fields]
 
-def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='data/report_rc'):
+def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='data/report_rc/raw_report'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code','report_date']
@@ -301,3 +301,27 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
         return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     else:
         return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    
+def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=2025,  fields=None, data_path='data/report_rc/roll_data'):
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'report_date','quarter']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = pd.read_feather(os.path.join(data_path, f'report_roll-{year}.ftr'), columns=fields)
+    if isinstance(codes, list):
+        data = data[data['ts_code'].isin(codes)]
+
+    data = data.sort_values(['ts_code', 'report_date'])
+    data['report_date'] = pd.to_datetime(data['report_date'])
+    data = data.set_index(['ts_code', 'report_date']).reindex(
+        pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['report_date'].min(), end_date, freq='D')],
+        names=['ts_code', 'report_date'])).groupby(level='ts_code').ffill().reset_index()
+    data = data[data['report_date'].between(start_date, end_date)]
+    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+    data = data[data['report_date'].isin(trade_cal)]
+    if fields is None:
+        return data.rename(columns={'report_date':'trade_date'})
+    else:
+        return data[fields].rename(columns={'report_date':'trade_date'})
