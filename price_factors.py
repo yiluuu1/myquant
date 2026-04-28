@@ -1,3 +1,10 @@
+"""
+CNE-6 价格类因子计算
+因子清单：Daily std, Cumulative range, Short Term reversal, Seasonality,
+         Industry Momentum, Relative strength, Long term relative strength,
+         BETA, Hist sigma, Historical alpha, Long term historical alpha
+"""
+
 import numpy as np
 import pandas as pd
 from datatools import get_price, get_basic, get_index_K
@@ -14,18 +21,41 @@ def make_weights(window, half_life):
 
 def exp_wt_rolling_sum(arr, w):
     """
-    滚动加权求和（向量化版）
+    滚动加权求和（np.convolve 版，消除 Python 循环）
     arr: (T, N)  w: (k,)
-    窗口第一行为 NaN 则该行输出 NaN
     """
     T, N = arr.shape
     k = len(w)
-    out = np.full((T, N), np.nan)
-    for i in range(k - 1, T):
-        if np.isnan(arr[i - k + 1, 0]):
-            continue
-        out[i] = arr[i - k + 1:i + 1].T @ w
+    w_rev = w[::-1]
+    out = np.empty((T, N))
+    for j in range(N):
+        out[:, j] = np.convolve(arr[:, j], w_rev, mode='full')[:T]
+    # 窗口第一行为 NaN 则该行输出 NaN
+    invalid = np.where(np.isnan(arr[:, 0]))[0]
+    for i in invalid:
+        lo, hi = i, min(i + k, T)
+        out[lo:hi] = np.nan
+    out[:k - 1] = np.nan
     return out
+
+
+def industry_rsi(rss_vec, mc_vec, ind_codes, n_ind):
+    """
+    向量化行业加权 RS（替代逐日 groupby）
+    rss_vec: (N,) 个股 RS
+    mc_vec: (N,) sqrt(market_cap)
+    ind_codes: (N,) int 行业编码 [0, n_ind)
+    n_ind: 行业数
+    返回 (N,) 每只股票对应的行业 RS
+    """
+    valid = ~(np.isnan(rss_vec) | np.isnan(mc_vec)) & (ind_codes >= 0)
+    rss_sum = np.bincount(ind_codes[valid], weights=rss_vec[valid] * mc_vec[valid], minlength=n_ind)
+    mc_sum = np.bincount(ind_codes[valid], weights=mc_vec[valid], minlength=n_ind)
+    rsi = np.where(mc_sum > 0, rss_sum / mc_sum, np.nan)
+    result = np.full(len(ind_codes), np.nan)
+    mask = ind_codes >= 0
+    result[mask] = rsi[ind_codes[mask]]
+    return result
 
 
 # ── 主函数 ────────────────────────────────────────────────────────────────────
@@ -51,8 +81,13 @@ def calc_price_factors(start_date, end_date, allstocks):
     price = price[price['ts_code'].isin(allstocks)].copy()
 
     print('加载指数数据...')
-    hs300 = get_index_K(codes=['000300.SH'], start_date=load_start, end_date=end_date,fields=['close', 'pre_close'])
+    hs300 = get_index_K(codes=['000300.SH'], start_date=load_start, end_date=end_date, fields=['close', 'pre_close'])
     hs300['trade_date'] = pd.to_datetime(hs300['trade_date'])
+
+    print('加载市值数据...')
+    basic = get_basic(start_date=load_start, end_date=end_date, fields=['circ_mv'])
+    basic = basic[basic['ts_code'].isin(allstocks)].copy()
+    basic['trade_date'] = pd.to_datetime(basic['trade_date'])
 
     # ── 构建矩阵 ──────────────────────────────────────────────────────────────
     dates = np.sort(price['trade_date'].unique())
@@ -70,35 +105,52 @@ def calc_price_factors(start_date, end_date, allstocks):
     n_dates, n_stocks = ret_mat.shape
     print(f'矩阵: {n_dates} 交易日 × {n_stocks} 只股票')
 
+    # 预计算常用中间量
+    ret2 = ret_mat ** 2
+
     # ================================================================
     # 1. Daily std — 252 日窗口，半衰期 42 日
     # ================================================================
     print('计算 Daily std...')
     w_dstd = make_weights(252, 42)
-    w2 = w_dstd ** 2
-    rw     = exp_wt_rolling_sum(np.ones_like(ret_mat), w2)
-    rw2    = exp_wt_rolling_sum(ret_mat ** 2, w2)
-    rw_sum = exp_wt_rolling_sum(ret_mat, w2)
-    var_w  = rw2 / rw - (rw_sum / rw) ** 2
+    w2_dstd = w_dstd ** 2
+    sum_w_dstd = exp_wt_rolling_sum(np.ones_like(ret_mat), w2_dstd)
+    sum_xw_dstd = exp_wt_rolling_sum(ret_mat, w2_dstd)
+    sum_x2w_dstd = exp_wt_rolling_sum(ret2, w2_dstd)
+    var_w = sum_x2w_dstd / sum_w_dstd - (sum_xw_dstd / sum_w_dstd) ** 2
     daily_std = np.sqrt(np.clip(var_w, 0, None))
 
     # ================================================================
     # 2. Cumulative range — Z(T) 为过去 T 个月累积对数收益，T=1..12
     # ================================================================
     print('计算 Cumulative range...')
-    monthly_ret = []
-    monthly_dates = []
-    for d in dates:
-        m_start = d - pd.DateOffset(months=1)
-        mask = (dates >= m_start) & (dates < d)
-        if mask.sum() >= 15:
-            monthly_ret.append(np.nansum(ret_mat[mask], axis=0))
-            monthly_dates.append(d)
-    monthly_ret = np.array(monthly_ret)  # (M, N)
+    # 预计算每月交易日掩码
+    dt_idx = pd.DatetimeIndex(dates)
+    year_month = dt_idx.year * 100 + dt_idx.month
+    unique_ym = np.unique(year_month)
+    monthly_idx = {}  # (year, month) -> mask over dates
+    for ym in unique_ym:
+        monthly_idx[ym] = np.where(year_month == ym)[0]
 
+    # 每月收益
+    monthly_ym_list = []
+    monthly_ret = []
+    for ym in sorted(monthly_idx.keys()):
+        idx = monthly_idx[ym]
+        if len(idx) >= 15:
+            monthly_ym_list.append(ym)
+            monthly_ret.append(np.nansum(ret_mat[idx], axis=0))
+    monthly_ret = np.array(monthly_ret)  # (M, N)
+    # 日期 → 月度索引映射
+    date_ym = year_month
+    ym_to_midx = {ym: i for i, ym in enumerate(monthly_ym_list)}
+
+    # 预计算每个日期对应的最近12个月索引
     cum_range = np.full((n_dates, n_stocks), np.nan)
-    for i, d in enumerate(dates):
-        m_idx = [j for j, md in enumerate(monthly_dates) if md <= d]
+    for i in range(n_dates):
+        ym = date_ym[i]
+        # 找到 <= 当前月份的所有月度索引
+        m_idx = [ym_to_midx[y] for y in monthly_ym_list if y <= ym]
         if len(m_idx) >= 12:
             window = monthly_ret[m_idx[-12:]]
             cum_z = np.cumsum(window, axis=0)
@@ -115,44 +167,39 @@ def calc_price_factors(start_date, end_date, allstocks):
     # 4. Seasonality — 过去 5 年同月收益率均值
     # ================================================================
     print('计算 Seasonality...')
-    mret_df = pd.DataFrame(monthly_ret, index=pd.DatetimeIndex(monthly_dates), columns=universe)
+    ym_to_monthly = {ym: i for i, ym in enumerate(monthly_ym_list)}
     season = np.full((n_dates, n_stocks), np.nan)
-    for i, d in enumerate(dates):
-        y, m = d.year, d.month
+    for i in range(n_dates):
+        y, m = dt_idx[i].year, dt_idx[i].month
         vals = []
         for y_back in range(1, 6):
-            key = pd.Timestamp(year=y - y_back, month=m, day=1) + pd.DateOffset(months=1)
-            if key in mret_df.index:
-                vals.append(mret_df.loc[key].values)
+            target_ym = (y - y_back) * 100 + m
+            if target_ym in ym_to_monthly:
+                vals.append(monthly_ret[ym_to_monthly[target_ym]])
         if vals:
             season[i] = np.nanmean(vals, axis=0)
 
     # ================================================================
-    # 5. Industry Momentum
+    # 5. Industry Momentum（暂不做行业中性化）
     # ================================================================
     print('计算 Industry Momentum...')
     ind = pd.read_csv('data/industry.csv')
     stock_ind = ind.set_index('ts_code')['l1_code']
 
-    mktcap = basic.pivot(index='trade_date', columns='ts_code', values='circ_mv') \
-                   .reindex(index=dates, columns=universe)
+    # 行业编码为整数
+    ind_categories = pd.Categorical(stock_ind.reindex(universe))
+    ind_codes = ind_categories.codes.astype(np.int64)  # (N,)
+    n_ind = len(ind_categories.categories)
+
+    mktcap = basic.pivot(index='trade_date', columns='ts_code', values='circ_mv').reindex(index=dates, columns=universe)
     mktcap_sqrt = np.sqrt(mktcap.values)
 
-    w_ind = make_weights(126, 21)   # 6 个月 ≈ 126 日，半衰期 1 个月 ≈ 21 日
-    rss_mat = exp_wt_rolling_sum(ret_mat, w_ind)  # 个股相对强度
+    w_ind = make_weights(126, 21)
+    rss_mat = exp_wt_rolling_sum(ret_mat, w_ind)
 
     rsi_mat = np.full_like(rss_mat, np.nan)
     for i in range(n_dates):
-        rss_today = pd.Series(rss_mat[i], index=universe)
-        mc_today  = pd.Series(mktcap_sqrt[i], index=universe)
-        df_tmp = pd.DataFrame({
-            'rss': rss_today, 'mc': mc_today,
-            'ind': stock_ind.reindex(universe)
-        })
-        rsi = df_tmp.groupby('ind').apply(
-            lambda g: np.nansum(g['rss'] * g['mc']) / np.nansum(g['mc'])
-        )
-        rsi_mat[i] = df_tmp['ind'].map(rsi).values
+        rsi_mat[i] = industry_rsi(rss_mat[i], mktcap_sqrt[i], ind_codes, n_ind)
 
     indmom_mat = -(rss_mat - rsi_mat)
 
@@ -161,28 +208,34 @@ def calc_price_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算 BETA / Hist sigma / Historical alpha...')
     w_beta = make_weights(252, 63)
-    wm = (ret_mkt[:, None] * np.ones((1, n_stocks))) * w_beta[:, None]  # (252, N)
+    w2_beta = w_beta ** 2
 
-    sum_w    = exp_wt_rolling_sum(np.ones_like(ret_mat), w_beta ** 2)
-    sum_wm   = exp_wt_rolling_sum(wm, w_beta)
-    sum_wm2  = exp_wt_rolling_sum(wm ** 2, w_beta ** 2)
-    sum_wr   = exp_wt_rolling_sum(ret_mat * w_beta[:, None], w_beta)
-    sum_wmr  = exp_wt_rolling_sum(wm * ret_mat, w_beta ** 2)
+    sum_w = exp_wt_rolling_sum(np.ones_like(ret_mat), w2_beta)
+    r_mkt2 = (ret_mkt ** 2)[:, None] * np.ones((1, n_stocks))  # (T, N)
+    r_mkt_r = ret_mkt[:, None] * np.ones((1, n_stocks)) * ret_mat  # (T, N)
 
-    var_m  = sum_wm2 / sum_w - (sum_wm / sum_w) ** 2
+    sum_wm2 = exp_wt_rolling_sum(r_mkt2, w2_beta)       # Σ w²·r_m²
+    sum_wmr = exp_wt_rolling_sum(r_mkt_r, w2_beta)      # Σ w²·r_m·r_s
+    sum_wm = exp_wt_rolling_sum(ret_mkt[:, None] * np.ones((1, n_stocks)), w2_beta)  # Σ w²·r_m
+    sum_wr = exp_wt_rolling_sum(ret_mat, w2_beta)        # Σ w²·r_s
+
+    var_m = sum_wm2 / sum_w - (sum_wm / sum_w) ** 2
     cov_mr = sum_wmr / sum_w - (sum_wm / sum_w) * (sum_wr / sum_w)
-    beta = cov_mr / var_m
-    beta = np.where(np.isnan(var_m) | (var_m < 1e-18), np.nan, beta)
+    beta = np.where(np.isnan(var_m) | (var_m < 1e-18), np.nan, cov_mr / var_m)
 
     mu_m = sum_wm / sum_w
     mu_r = sum_wr / sum_w
-    alpha = mu_r - beta * mu_m                       # Historical alpha
+    alpha = mu_r - beta * mu_m                           # Historical alpha
 
     resid = ret_mat - (alpha + beta * ret_mkt[:, None])
-    sum_w_resid2 = exp_wt_rolling_sum(
-        (resid * w_beta[:, None]) ** 2, np.ones(252)
-    )
-    hist_sigma = np.sqrt(sum_w_resid2 / sum_w)       # Hist sigma
+    # hist_sigma = sqrt(Σ w·resid² / Σ w²)，逐列 convolve
+    resid2 = resid ** 2
+    w_beta_rev = w_beta[::-1]
+    sum_w_resid2 = np.empty_like(resid)
+    for j in range(n_stocks):
+        sum_w_resid2[:, j] = np.convolve(resid2[:, j], w_beta_rev, mode='full')[:n_dates]
+    sum_w_resid2[:251] = np.nan
+    hist_sigma = np.sqrt(sum_w_resid2 / sum_w)           # Hist sigma
 
     # ================================================================
     # 7. Relative strength — 252 日 / 126 日，滞后 11 日，11 日窗口均值
@@ -209,18 +262,20 @@ def calc_price_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算 Long term historical alpha...')
     w_ltha = make_weights(1040, 260)
-    wm_lt = (ret_mkt[:, None] * np.ones((1, n_stocks))) * w_ltha[:, None]
+    w2_ltha = w_ltha ** 2
 
-    sum_w_lt   = exp_wt_rolling_sum(np.ones_like(ret_mat), w_ltha ** 2)
-    sum_wm_lt  = exp_wt_rolling_sum(wm_lt, w_ltha)
-    sum_wm2_lt = exp_wt_rolling_sum(wm_lt ** 2, w_ltha ** 2)
-    sum_wr_lt  = exp_wt_rolling_sum(ret_mat * w_ltha[:, None], w_ltha)
-    sum_wmr_lt = exp_wt_rolling_sum(wm_lt * ret_mat, w_ltha ** 2)
+    sum_w_lt = exp_wt_rolling_sum(np.ones_like(ret_mat), w2_ltha)
+    r_mkt2_lt = (ret_mkt ** 2)[:, None] * np.ones((1, n_stocks))
+    r_mkt_r_lt = ret_mkt[:, None] * np.ones((1, n_stocks)) * ret_mat
 
-    var_m_lt  = sum_wm2_lt / sum_w_lt - (sum_wm_lt / sum_w_lt) ** 2
+    sum_wm2_lt = exp_wt_rolling_sum(r_mkt2_lt, w2_ltha)
+    sum_wmr_lt = exp_wt_rolling_sum(r_mkt_r_lt, w2_ltha)
+    sum_wm_lt = exp_wt_rolling_sum(ret_mkt[:, None] * np.ones((1, n_stocks)), w2_ltha)
+    sum_wr_lt = exp_wt_rolling_sum(ret_mat, w2_ltha)
+
+    var_m_lt = sum_wm2_lt / sum_w_lt - (sum_wm_lt / sum_w_lt) ** 2
     cov_mr_lt = sum_wmr_lt / sum_w_lt - (sum_wm_lt / sum_w_lt) * (sum_wr_lt / sum_w_lt)
-    beta_lt = cov_mr_lt / var_m_lt
-    beta_lt = np.where(np.isnan(var_m_lt) | (var_m_lt < 1e-18), np.nan, beta_lt)
+    beta_lt = np.where(np.isnan(var_m_lt) | (var_m_lt < 1e-18), np.nan, cov_mr_lt / var_m_lt)
 
     mu_m_lt = sum_wm_lt / sum_w_lt
     mu_r_lt = sum_wr_lt / sum_w_lt
@@ -270,6 +325,11 @@ def calc_price_factors(start_date, end_date, allstocks):
 
 if __name__ == '__main__':
     allstocks = pd.read_csv('data/allstock.csv')
-    allstocks = allstocks[(allstocks['list_date'] < 20250101) & ~allstocks['ts_code'].str.contains('BJ')].ts_code.tolist()
+    allstocks = allstocks[
+        (allstocks['list_date'] < 20250101) & ~allstocks['ts_code'].str.contains('BJ')
+    ].ts_code.tolist()
 
     df = calc_price_factors(start_date='2025-01-01', end_date='2025-12-31', allstocks=allstocks)
+    print(df.head(10))
+    print(f'\nShape: {df.shape}')
+    print(f'Columns: {df.columns.tolist()}')
