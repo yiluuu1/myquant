@@ -325,11 +325,6 @@ def calc_price_factors(start_date, end_date, allstocks):
 
 if __name__ == '__main__':
     allstocks = pd.read_csv('data/allstock.csv')
-    allstocks = allstocks[
-        (allstocks['list_date'] < 20250101) & ~allstocks['ts_code'].str.contains('BJ')
-    ].ts_code.tolist()
+    allstocks = allstocks[(allstocks['list_date'] < 20250101) & ~allstocks['ts_code'].str.contains('BJ')].ts_code.tolist()
 
     df = calc_price_factors(start_date='2025-01-01', end_date='2025-12-31', allstocks=allstocks)
-    print(df.head(10))
-    print(f'\nShape: {df.shape}')
-    print(f'Columns: {df.columns.tolist()}')
