@@ -5,6 +5,7 @@ CNE-6 基本面因子计算
 
 import numpy as np
 import pandas as pd
+from numba import njit
 from datatools import get_basic, get_finance, get_finance_ttm, get_report_roll
 
 
@@ -16,50 +17,138 @@ def make_weights(window, half_life):
     return w / w.sum()
 
 
+@njit(cache=True)
+def _ewrs_core(arr_clean, nan_f, w0, q, qk, k, T, N):
+    V = np.empty((T, N))
+    V[0] = arr_clean[0]
+    C = np.empty((T, N))
+    C[0] = nan_f[0]
+    for t in range(1, T):
+        v = arr_clean[t] + q * V[t - 1]
+        c = nan_f[t] + C[t - 1]
+        if t >= k:
+            v -= qk * arr_clean[t - k]
+            c -= nan_f[t - k]
+        V[t] = v
+        C[t] = c
+    return V, C
+
+
 def exp_wt_rolling_sum(arr, w):
+    """滚动加权求和（numba IIR 递推版，O(T×N)）"""
     T, N = arr.shape
     k = len(w)
     w_rev = w[::-1]
-    out = np.empty((T, N))
-    for j in range(N):
-        out[:, j] = np.convolve(arr[:, j], w_rev, mode='full')[:T]
-    invalid = np.where(np.isnan(arr[:, 0]))[0]
-    for i in invalid:
-        out[i:min(i + k, T)] = np.nan
+    q = w_rev[1] / w_rev[0]
+    qk = q ** k
+    nan_mask = np.isnan(arr)
+    arr_clean = np.where(nan_mask, 0.0, arr).astype(np.float64)
+    nan_f = nan_mask.astype(np.float64)
+    V, C = _ewrs_core(arr_clean, nan_f, w_rev[0], q, qk, k, T, N)
+    out = w_rev[0] * V
+    out[C > 0] = np.nan
     out[:k - 1] = np.nan
     return out
 
 
+@njit(cache=True)
+def _slope_5y_core(mat, target_years, annual_years, yc5, ss5, T, N):
+    """numba 核心：5年回归斜率/均值"""
+    result = np.full((T, N), np.nan)
+    n_annual = len(annual_years)
+    for i in range(T):
+        # 找到最后5个 <= target_years[i] 的年度索引
+        count = 0
+        last5 = np.empty(5, dtype=np.int64)
+        for j in range(n_annual):
+            if annual_years[j] <= target_years[i]:
+                last5[count % 5] = j
+                count += 1
+        if count >= 5:
+            # 取最后5个
+            start = count - 5
+            idx = np.empty(5, dtype=np.int64)
+            for s in range(5):
+                idx[s] = last5[(start + s) % 5]
+            for n in range(N):
+                slope = 0.0
+                mean = 0.0
+                valid = True
+                for s in range(5):
+                    val = mat[idx[s], n]
+                    if np.isnan(val):
+                        valid = False
+                        break
+                    slope += yc5[s] * val
+                    mean += val
+                if valid:
+                    slope /= ss5
+                    mean /= 5.0
+                    if np.abs(mean) > 1e-8:
+                        result[i, n] = slope / mean
+    return result
+
+
 def slope_5y(mat, annual_dates, target_dates):
     """
-    过去5个财年对时间回归的斜率 / 均值（向量化）
+    过去5个财年对时间回归的斜率 / 均值（numba 加速）
     mat: (n_annual, N) 年度数据
     annual_dates: DatetimeIndex 年度日期
     target_dates: 目标日期数组
     返回 (T, N)
     """
-    n_annual = len(annual_dates)
-    years = np.array([d.year for d in annual_dates], dtype=float)
-    # 5年窗口的斜率系数（固定）
-    yc5 = np.arange(5, dtype=float) - 2.0  # [-2, -1, 0, 1, 2]
-    ss5 = (yc5 ** 2).sum()  # 10.0
+    yc5 = np.arange(5, dtype=np.float64) - 2.0
+    ss5 = (yc5 ** 2).sum()
+    annual_years = pd.DatetimeIndex(annual_dates).year.to_numpy(dtype=np.float64)
+    target_years = pd.DatetimeIndex(target_dates).year.to_numpy(dtype=np.float64)
+    return _slope_5y_core(np.ascontiguousarray(mat, dtype=np.float64),
+                          target_years, annual_years, yc5, ss5,
+                          len(target_dates), mat.shape[1])
 
-    T = len(target_dates)
-    N = mat.shape[1]
+
+@njit(cache=True)
+def _variation_5y_core(arr, annual_years, target_years, T, N):
+    """numba 核心：5年波动率"""
     result = np.full((T, N), np.nan)
-
-    # 预计算每个 target_date 对应的年度索引范围
-    annual_years = np.array([d.year for d in annual_dates])
-    for i, d in enumerate(target_dates):
-        mask = annual_dates <= d
-        n_valid = mask.sum()
-        if n_valid >= 5:
-            idx = np.where(mask)[0][-5:]
-            window = mat[idx]
-            slope = (yc5[:, None] * window).sum(axis=0) / ss5
-            mean = window.mean(axis=0)
-            result[i] = np.where(np.abs(mean) > 1e-8, slope / mean, np.nan)
+    n_annual = len(annual_years)
+    for i in range(T):
+        count = 0
+        last5 = np.empty(5, dtype=np.int64)
+        for j in range(n_annual):
+            if annual_years[j] <= target_years[i]:
+                last5[count % 5] = j
+                count += 1
+        if count >= 5:
+            start = count - 5
+            idx = np.empty(5, dtype=np.int64)
+            for s in range(5):
+                idx[s] = last5[(start + s) % 5]
+            for n in range(N):
+                mean = 0.0
+                valid_count = 0
+                for s in range(5):
+                    val = arr[idx[s], n]
+                    if not np.isnan(val):
+                        mean += val
+                        valid_count += 1
+                if valid_count >= 5:
+                    mean /= 5.0
+                    if np.abs(mean) > 1e-6:
+                        var = 0.0
+                        for s in range(5):
+                            diff = arr[idx[s], n] - mean
+                            var += diff * diff
+                        var /= 4.0  # ddof=1
+                        result[i, n] = np.sqrt(var) / np.abs(mean)
     return result
+
+
+def variation_5y(annual_df, dates, universe):
+    """5年波动率（numba 加速）"""
+    annual_years = pd.DatetimeIndex(annual_df.index).year.to_numpy(dtype=np.float64)
+    target_years = pd.DatetimeIndex(dates).year.to_numpy(dtype=np.float64)
+    arr = np.ascontiguousarray(annual_df.reindex(columns=universe).values, dtype=np.float64)
+    return _variation_5y_core(arr, annual_years, target_years, len(dates), arr.shape[1])
 
 
 # ── 主函数 ────────────────────────────────────────────────────────────────────
@@ -109,8 +198,7 @@ def calc_fund_factors(start_date, end_date, allstocks):
         'n_incr_cash_cash_equ_ttm', 'total_cogs_ttm', 'ebit_ttm',
         'depr_fa_coga_dpba_ttm', 'amort_intang_assets_ttm', 'lt_amort_deferred_exp_ttm',
         'n_cashflow_act_ttm', 'n_cashflow_inv_act_ttm',
-        'c_pay_acq_const_fiolta_ttm', 'c_cash_equ_end_period_ttm', 'basic_eps_ttm',
-    ])
+        'c_pay_acq_const_fiolta_ttm', 'c_cash_equ_end_period_ttm', 'basic_eps_ttm'])
     fin_ttm = fin_ttm[fin_ttm['ts_code'].isin(allstocks)].copy()
     fin_ttm = fin_ttm.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last')
 
@@ -136,42 +224,70 @@ def calc_fund_factors(start_date, end_date, allstocks):
     turnover = basic.pivot(index='trade_date', columns='ts_code', values='turnover_rate') \
                      .reindex(index=dates, columns=universe).values
 
-    # TTM 数据 pivot（已按 ann_date 前向填充到交易日）
-    def pivot_ttm(field):
-        df = fin_ttm.pivot(index='trade_date', columns='ts_code', values=field) \
-                     .reindex(index=dates, columns=universe)
-        return df.values
+    # 索引映射（用于快速 pivot）
+    date_idx = pd.Series(np.arange(len(dates)), index=dates)
+    stock_idx = pd.Series(np.arange(len(universe)), index=universe)
 
-    rev_ttm = pivot_ttm('revenue_ttm')
-    ni_ttm = pivot_ttm('n_income_attr_p_ttm')
-    cfo_ttm = pivot_ttm('n_cashflow_act_ttm')
-    cogs_ttm = pivot_ttm('total_cogs_ttm')
-    ebit_ttm = pivot_ttm('ebit_ttm')
-    da_ttm = pivot_ttm('depr_fa_coga_dpba_ttm') + pivot_ttm('amort_intang_assets_ttm') + pivot_ttm('lt_amort_deferred_exp_ttm')
-    capex_ttm = pivot_ttm('c_pay_acq_const_fiolta_ttm')
-    cfi_ttm = pivot_ttm('n_cashflow_inv_act_ttm')
+    # TTM 数据 pivot — numpy 索引
+    ttm_fields = ['revenue_ttm', 'total_revenue_ttm', 'n_income_attr_p_ttm',
+                  'n_cashflow_act_ttm', 'total_cogs_ttm', 'ebit_ttm',
+                  'depr_fa_coga_dpba_ttm', 'amort_intang_assets_ttm', 'lt_amort_deferred_exp_ttm',
+                  'c_pay_acq_const_fiolta_ttm', 'n_cashflow_inv_act_ttm']
+    ttm_di = fin_ttm['trade_date'].map(date_idx).values
+    ttm_si = fin_ttm['ts_code'].map(stock_idx).values
+    ttm_valid = ~(np.isnan(ttm_di) | np.isnan(ttm_si))
+    ttm_di = ttm_di[ttm_valid].astype(int)
+    ttm_si = ttm_si[ttm_valid].astype(int)
 
-    # 资产负债表（最新值）
-    def pivot_fin_latest(field):
-        df = fin.pivot(index='trade_date', columns='ts_code', values=field) \
-                .reindex(index=dates, columns=universe)
-        return df.values
+    ttm_arrays = {}
+    for field in ttm_fields:
+        arr = np.full((n_dates, n_stocks), np.nan)
+        vals = fin_ttm[field].values[ttm_valid]
+        arr[ttm_di, ttm_si] = vals
+        ttm_arrays[field] = arr
 
-    total_assets = pivot_fin_latest('total_assets')
-    total_liab = pivot_fin_latest('total_liab')
-    total_ncl = pivot_fin_latest('total_ncl')
-    ncl_due_1y = pivot_fin_latest('non_cur_liab_due_1y')
-    lt_borr = pivot_fin_latest('lt_borr')
-    total_share = pivot_fin_latest('total_share')
-    minority_int = pivot_fin_latest('minority_int')
-    eqt_exc_min = pivot_fin_latest('total_hldr_eqy_exc_min_int')
-    oth_eqt = pivot_fin_latest('oth_eqt_tools_p_shr')
-    basic_eps = pivot_fin_latest('basic_eps')
-    ni_attr_p = pivot_fin_latest('n_income_attr_p')
-    c_cash_end = pivot_fin_latest('c_cash_equ_end_period')
-    revenue = pivot_fin_latest('total_revenue')
-    n_income = pivot_fin_latest('n_income')
-    n_incr_cash = pivot_fin_latest('n_incr_cash_cash_equ')
+    rev_ttm = ttm_arrays['revenue_ttm']
+    ni_ttm = ttm_arrays['n_income_attr_p_ttm']
+    cfo_ttm = ttm_arrays['n_cashflow_act_ttm']
+    cogs_ttm = ttm_arrays['total_cogs_ttm']
+    ebit_ttm = ttm_arrays['ebit_ttm']
+    da_ttm = ttm_arrays['depr_fa_coga_dpba_ttm'] + ttm_arrays['amort_intang_assets_ttm'] + ttm_arrays['lt_amort_deferred_exp_ttm']
+    capex_ttm = ttm_arrays['c_pay_acq_const_fiolta_ttm']
+    cfi_ttm = ttm_arrays['n_cashflow_inv_act_ttm']
+
+    # 资产负债表（最新值）— 用 numpy 索引替代逐字段 pivot
+    fin_fields = ['total_assets', 'total_liab', 'total_ncl', 'non_cur_liab_due_1y',
+                  'lt_borr', 'total_share', 'minority_int', 'total_hldr_eqy_exc_min_int',
+                  'oth_eqt_tools_p_shr', 'basic_eps', 'n_income_attr_p',
+                  'c_cash_equ_end_period', 'total_revenue', 'n_income', 'n_incr_cash_cash_equ']
+    fin_di = fin['trade_date'].map(date_idx).values
+    fin_si = fin['ts_code'].map(stock_idx).values
+    valid_mask = ~(np.isnan(fin_di) | np.isnan(fin_si))
+    fin_di = fin_di[valid_mask].astype(int)
+    fin_si = fin_si[valid_mask].astype(int)
+
+    fin_arrays = {}
+    for field in fin_fields:
+        arr = np.full((n_dates, n_stocks), np.nan)
+        vals = fin[field].values[valid_mask]
+        arr[fin_di, fin_si] = vals
+        fin_arrays[field] = arr
+
+    total_assets = fin_arrays['total_assets']
+    total_liab = fin_arrays['total_liab']
+    total_ncl = fin_arrays['total_ncl']
+    ncl_due_1y = fin_arrays['non_cur_liab_due_1y']
+    lt_borr = fin_arrays['lt_borr']
+    total_share = fin_arrays['total_share']
+    minority_int = fin_arrays['minority_int']
+    eqt_exc_min = fin_arrays['total_hldr_eqy_exc_min_int']
+    oth_eqt = fin_arrays['oth_eqt_tools_p_shr']
+    basic_eps = fin_arrays['basic_eps']
+    ni_attr_p = fin_arrays['n_income_attr_p']
+    c_cash_end = fin_arrays['c_cash_equ_end_period']
+    revenue = fin_arrays['total_revenue']
+    n_income = fin_arrays['n_income']
+    n_incr_cash = fin_arrays['n_incr_cash_cash_equ']
 
     # ================================================================
     # 换手率因子
@@ -258,23 +374,10 @@ def calc_fund_factors(start_date, end_date, allstocks):
     cash_annual_arr = cash_end_annual_df.values
     annual_dates = ta_annual_df.index
 
-    # 5年波动率
-    def variation_5y(annual_df):
-        years = annual_df.index
-        result = np.full((n_dates, n_stocks), np.nan)
-        arr = annual_df.reindex(columns=universe).values
-        for i, d in enumerate(dates):
-            valid = [j for j, yd in enumerate(years) if yd <= d]
-            if len(valid) >= 5:
-                window = arr[valid[-5:]]
-                mean = np.nanmean(window, axis=0)
-                std = np.nanstd(window, axis=0, ddof=1)
-                result[i] = np.where(np.abs(mean) > 1e-6, std / np.abs(mean), np.nan)
-        return result
-
-    var_sales = variation_5y(rev_annual)
-    var_earnings = variation_5y(ni_annual)
-    var_cashflows = variation_5y(cash_annual)
+    # 5年波动率（numba 加速）
+    var_sales = variation_5y(rev_annual, dates, universe)
+    var_earnings = variation_5y(ni_annual, dates, universe)
+    var_cashflows = variation_5y(cash_annual, dates, universe)
 
     # ================================================================
     # 应计项目
@@ -300,7 +403,7 @@ def calc_fund_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算盈利能力...')
     # total_revenue_ttm 比 revenue_ttm 更完整
-    rev_ttm_full = pivot_ttm('total_revenue_ttm')
+    rev_ttm_full = ttm_arrays['total_revenue_ttm']
     ato = rev_ttm_full / total_assets
     gp = (rev_ttm_full - cogs_ttm) / total_assets
     gpm = (rev_ttm_full - cogs_ttm) / np.where(np.abs(rev_ttm_full) > 1e-6, rev_ttm_full, np.nan)
@@ -423,11 +526,6 @@ def calc_fund_factors(start_date, end_date, allstocks):
 
 if __name__ == '__main__':
     allstocks = pd.read_csv('data/allstock.csv')
-    allstocks = allstocks[
-        (allstocks['list_date'] < 20250101) & ~allstocks['ts_code'].str.contains('BJ')
-    ].ts_code.tolist()
+    allstocks = allstocks[(allstocks['list_date'] < 20250101) & ~allstocks['ts_code'].str.contains('BJ')].ts_code.tolist()
 
     df = calc_fund_factors(start_date='2025-01-01', end_date='2025-03-31', allstocks=allstocks)
-    print(df.head(10))
-    print(f'\nShape: {df.shape}')
-    print(f'Columns: {df.columns.tolist()}')

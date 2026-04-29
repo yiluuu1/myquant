@@ -7,6 +7,7 @@ CNE-6 价格类因子计算
 
 import numpy as np
 import pandas as pd
+from numba import njit
 from datatools import get_price, get_basic, get_index_K
 
 
@@ -19,22 +20,37 @@ def make_weights(window, half_life):
     return w / w.sum()
 
 
+@njit(cache=True)
+def _ewrs_core(arr_clean, nan_f, w0, q, qk, k, T, N):
+    """numba 核心：IIR 递推 + NaN 计数"""
+    V = np.empty((T, N))
+    V[0] = arr_clean[0]
+    C = np.empty((T, N))
+    C[0] = nan_f[0]
+    for t in range(1, T):
+        v = arr_clean[t] + q * V[t - 1]
+        c = nan_f[t] + C[t - 1]
+        if t >= k:
+            v -= qk * arr_clean[t - k]
+            c -= nan_f[t - k]
+        V[t] = v
+        C[t] = c
+    return V, C
+
+
 def exp_wt_rolling_sum(arr, w):
-    """
-    滚动加权求和（np.convolve 版，消除 Python 循环）
-    arr: (T, N)  w: (k,)
-    """
+    """滚动加权求和（numba IIR 递推版，O(T×N)）"""
     T, N = arr.shape
     k = len(w)
     w_rev = w[::-1]
-    out = np.empty((T, N))
-    for j in range(N):
-        out[:, j] = np.convolve(arr[:, j], w_rev, mode='full')[:T]
-    # 窗口第一行为 NaN 则该行输出 NaN
-    invalid = np.where(np.isnan(arr[:, 0]))[0]
-    for i in invalid:
-        lo, hi = i, min(i + k, T)
-        out[lo:hi] = np.nan
+    q = w_rev[1] / w_rev[0]
+    qk = q ** k
+    nan_mask = np.isnan(arr)
+    arr_clean = np.where(nan_mask, 0.0, arr).astype(np.float64)
+    nan_f = nan_mask.astype(np.float64)
+    V, C = _ewrs_core(arr_clean, nan_f, w_rev[0], q, qk, k, T, N)
+    out = w_rev[0] * V
+    out[C > 0] = np.nan
     out[:k - 1] = np.nan
     return out
 
@@ -228,14 +244,9 @@ def calc_price_factors(start_date, end_date, allstocks):
     alpha = mu_r - beta * mu_m                           # Historical alpha
 
     resid = ret_mat - (alpha + beta * ret_mkt[:, None])
-    # hist_sigma = sqrt(Σ w·resid² / Σ w²)，逐列 convolve
     resid2 = resid ** 2
-    w_beta_rev = w_beta[::-1]
-    sum_w_resid2 = np.empty_like(resid)
-    for j in range(n_stocks):
-        sum_w_resid2[:, j] = np.convolve(resid2[:, j], w_beta_rev, mode='full')[:n_dates]
-    sum_w_resid2[:251] = np.nan
-    hist_sigma = np.sqrt(sum_w_resid2 / sum_w)           # Hist sigma
+    sum_w_resid2 = exp_wt_rolling_sum(resid2, w_beta)
+    hist_sigma = np.sqrt(sum_w_resid2 / sum_w)
 
     # ================================================================
     # 7. Relative strength — 252 日 / 126 日，滞后 11 日，11 日窗口均值
