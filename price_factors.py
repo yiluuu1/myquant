@@ -21,7 +21,7 @@ def make_weights(window, half_life):
 
 
 @njit(cache=True)
-def _ewrs_core(arr_clean, nan_f, w0, q, qk, k, T, N):
+def _ewrs_core(arr_clean, nan_f, q, qk, k, T, N):
     """numba 核心：IIR 递推 + NaN 计数"""
     V = np.empty((T, N))
     V[0] = arr_clean[0]
@@ -46,9 +46,9 @@ def exp_wt_rolling_sum(arr, w):
     q = w_rev[1] / w_rev[0]
     qk = q ** k
     nan_mask = np.isnan(arr)
-    arr_clean = np.where(nan_mask, 0.0, arr).astype(np.float64)
-    nan_f = nan_mask.astype(np.float64)
-    V, C = _ewrs_core(arr_clean, nan_f, w_rev[0], q, qk, k, T, N)
+    arr_clean = np.where(nan_mask, 0.0, arr).astype(np.float32)
+    nan_f = nan_mask.astype(np.float32)
+    V, C = _ewrs_core(arr_clean, nan_f, q, qk, k, T, N)
     out = w_rev[0] * V
     out[C > 0] = np.nan
     out[:k - 1] = np.nan
@@ -129,10 +129,9 @@ def calc_price_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算 Daily std...')
     w_dstd = make_weights(252, 42)
-    w2_dstd = w_dstd ** 2
-    sum_w_dstd = exp_wt_rolling_sum(np.ones_like(ret_mat), w2_dstd)
-    sum_xw_dstd = exp_wt_rolling_sum(ret_mat, w2_dstd)
-    sum_x2w_dstd = exp_wt_rolling_sum(ret2, w2_dstd)
+    sum_w_dstd = exp_wt_rolling_sum(np.ones_like(ret_mat), w_dstd)
+    sum_xw_dstd = exp_wt_rolling_sum(ret_mat, w_dstd)
+    sum_x2w_dstd = exp_wt_rolling_sum(ret2, w_dstd)
     var_w = sum_x2w_dstd / sum_w_dstd - (sum_xw_dstd / sum_w_dstd) ** 2
     daily_std = np.sqrt(np.clip(var_w, 0, None))
 
@@ -224,16 +223,15 @@ def calc_price_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算 BETA / Hist sigma / Historical alpha...')
     w_beta = make_weights(252, 63)
-    w2_beta = w_beta ** 2
 
-    sum_w = exp_wt_rolling_sum(np.ones_like(ret_mat), w2_beta)
+    sum_w = exp_wt_rolling_sum(np.ones_like(ret_mat), w_beta)
     r_mkt2 = (ret_mkt ** 2)[:, None] * np.ones((1, n_stocks))  # (T, N)
     r_mkt_r = ret_mkt[:, None] * np.ones((1, n_stocks)) * ret_mat  # (T, N)
 
-    sum_wm2 = exp_wt_rolling_sum(r_mkt2, w2_beta)       # Σ w²·r_m²
-    sum_wmr = exp_wt_rolling_sum(r_mkt_r, w2_beta)      # Σ w²·r_m·r_s
-    sum_wm = exp_wt_rolling_sum(ret_mkt[:, None] * np.ones((1, n_stocks)), w2_beta)  # Σ w²·r_m
-    sum_wr = exp_wt_rolling_sum(ret_mat, w2_beta)        # Σ w²·r_s
+    sum_wm2 = exp_wt_rolling_sum(r_mkt2, w_beta)       # Σ w·r_m²
+    sum_wmr = exp_wt_rolling_sum(r_mkt_r, w_beta)      # Σ w·r_m·r_s
+    sum_wm = exp_wt_rolling_sum(ret_mkt[:, None] * np.ones((1, n_stocks)), w_beta)  # Σ w·r_m
+    sum_wr = exp_wt_rolling_sum(ret_mat, w_beta)        # Σ w·r_s
 
     var_m = sum_wm2 / sum_w - (sum_wm / sum_w) ** 2
     cov_mr = sum_wmr / sum_w - (sum_wm / sum_w) * (sum_wr / sum_w)
@@ -273,16 +271,15 @@ def calc_price_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算 Long term historical alpha...')
     w_ltha = make_weights(1040, 260)
-    w2_ltha = w_ltha ** 2
 
-    sum_w_lt = exp_wt_rolling_sum(np.ones_like(ret_mat), w2_ltha)
+    sum_w_lt = exp_wt_rolling_sum(np.ones_like(ret_mat), w_ltha)
     r_mkt2_lt = (ret_mkt ** 2)[:, None] * np.ones((1, n_stocks))
     r_mkt_r_lt = ret_mkt[:, None] * np.ones((1, n_stocks)) * ret_mat
 
-    sum_wm2_lt = exp_wt_rolling_sum(r_mkt2_lt, w2_ltha)
-    sum_wmr_lt = exp_wt_rolling_sum(r_mkt_r_lt, w2_ltha)
-    sum_wm_lt = exp_wt_rolling_sum(ret_mkt[:, None] * np.ones((1, n_stocks)), w2_ltha)
-    sum_wr_lt = exp_wt_rolling_sum(ret_mat, w2_ltha)
+    sum_wm2_lt = exp_wt_rolling_sum(r_mkt2_lt, w_ltha)
+    sum_wmr_lt = exp_wt_rolling_sum(r_mkt_r_lt, w_ltha)
+    sum_wm_lt = exp_wt_rolling_sum(ret_mkt[:, None] * np.ones((1, n_stocks)), w_ltha)
+    sum_wr_lt = exp_wt_rolling_sum(ret_mat, w_ltha)
 
     var_m_lt = sum_wm2_lt / sum_w_lt - (sum_wm_lt / sum_w_lt) ** 2
     cov_mr_lt = sum_wmr_lt / sum_w_lt - (sum_wm_lt / sum_w_lt) * (sum_wr_lt / sum_w_lt)
