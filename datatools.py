@@ -325,3 +325,8 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
         return data.rename(columns={'report_date':'trade_date'})
     else:
         return data[fields].rename(columns={'report_date':'trade_date'})
+    
+def get_trade_cal(start_date='2023-03-01', end_date='2023-07-17', data_path='data/trade_cal.csv'):
+    data = pd.read_csv(data_path).sort_values('cal_date')
+    data['cal_date'] = pd.to_datetime(data['cal_date'])
+    return data[(data['cal_date'] >= start_date) & (data['cal_date'] <= end_date) & (data['is_open'] == 1)]['cal_date'].tolist()
