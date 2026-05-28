@@ -89,6 +89,7 @@ def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-
     for d in codes:
         try:
             tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields)
+            tmp['trade_date'] = pd.to_datetime(tmp['trade_date'])
             tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
@@ -110,7 +111,8 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
     data = []
     for d in codes:
         try:
-            tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields)
+            tmp = pd.read_csv(os.path.join(data_path, f'{d}_basic.csv'), usecols=fields)
+            tmp['trade_date'] = pd.to_datetime(tmp['trade_date'])
             tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
@@ -212,7 +214,7 @@ def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fie
     else:
         return data[fields]
 
-def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet'):
+def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet', align_trade_date=True):
     def get_report_date(date_input):
         dt = pd.to_datetime(date_input)
         year = dt.year
@@ -246,18 +248,19 @@ def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
     
     data = data.sort_values(['ts_code', 'ann_date']).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
     data['ann_date'] = pd.to_datetime(data['ann_date'])
-    data = data.set_index(['ts_code', 'ann_date']).reindex(
-        pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
-        names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
-    data = data[data['ann_date'].between(start_date, end_date)]
-    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
-    data = data[data['ann_date'].isin(trade_cal)]
+    if align_trade_date:
+        data = data.set_index(['ts_code', 'ann_date']).reindex(
+            pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
+            names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
+        data = data[data['ann_date'].between(start_date, end_date)]
+        trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+        data = data[data['ann_date'].isin(trade_cal)]
     if fields is None:
         return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     else:
         return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     
-def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet_ttm'):
+def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet_ttm',align_trade_date=True):
     def get_report_date(date_input):
         dt = pd.to_datetime(date_input)
         year = dt.year
@@ -271,7 +274,7 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
         elif month in [9, 10]:
             return f"{year}-06-30"
         else:
-            return None  # 异常情况
+            return None
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'end_date', 'ann_date']
@@ -288,39 +291,42 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
         except FileNotFoundError:
             continue
     data = pd.concat(data)
-    
     data = data.sort_values(['ts_code', 'ann_date']).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
     data['ann_date'] = pd.to_datetime(data['ann_date'])
-    data = data.set_index(['ts_code', 'ann_date']).reindex(
-        pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
-        names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
-    data = data[data['ann_date'].between(start_date, end_date)]
-    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
-    data = data[data['ann_date'].isin(trade_cal)]
+    if align_trade_date:
+        data = data.set_index(['ts_code', 'ann_date']).reindex(
+            pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
+            names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
+        data = data[data['ann_date'].between(start_date, end_date)]
+        trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+        data = data[data['ann_date'].isin(trade_cal)]
     if fields is None:
         return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     else:
         return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     
-def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=2025,  fields=None, data_path='data/report_rc/roll_data'):
+def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=[2025],  fields=None, data_path='data/report_rc/roll_data'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'report_date','quarter']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
 
     # 提取数据
-    data = pd.read_feather(os.path.join(data_path, f'report_roll-{year}.ftr'), columns=fields)
-    if isinstance(codes, list):
-        data = data[data['ts_code'].isin(codes)]
-
-    data = data.sort_values(['ts_code', 'report_date'])
-    data['report_date'] = pd.to_datetime(data['report_date'])
-    data = data.set_index(['ts_code', 'report_date']).reindex(
-        pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['report_date'].min(), end_date, freq='D')],
-        names=['ts_code', 'report_date'])).groupby(level='ts_code').ffill().reset_index()
-    data = data[data['report_date'].between(start_date, end_date)]
-    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
-    data = data[data['report_date'].isin(trade_cal)]
+    data = []
+    for y in year:
+        tmp = pd.read_feather(os.path.join(data_path, f'report_roll-{y}.ftr'), columns=fields)
+        if isinstance(codes, list):
+            tmp = tmp[tmp['ts_code'].isin(codes)]
+        tmp = tmp.sort_values(['ts_code', 'report_date'])
+        tmp['report_date'] = pd.to_datetime(tmp['report_date'])
+        tmp = tmp.set_index(['ts_code', 'report_date']).reindex(
+            pd.MultiIndex.from_product([tmp['ts_code'].unique(), pd.date_range(tmp['report_date'].min(), end_date, freq='D')],
+            names=['ts_code', 'report_date'])).groupby(level='ts_code').ffill().reset_index()
+        tmp = tmp[tmp['report_date'].between(start_date, end_date)]
+        trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+        tmp = tmp[tmp['report_date'].isin(trade_cal)]
+        data.append(tmp)
+    data = pd.concat(data)
     if fields is None:
         return data.rename(columns={'report_date':'trade_date'})
     else:

@@ -2,154 +2,45 @@
 CNE-6 基本面因子计算
 换手率、市值、杠杆、估值、分红、财务质量、投资、增长、分析师预测
 """
-
 import numpy as np
 import pandas as pd
-from numba import njit
 from datatools import get_basic, get_finance, get_finance_ttm, get_report_roll
 
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────────
 
-def make_weights(window, half_life):
-    tau = window / half_life * np.log(2)
-    w = np.exp(-tau * (1 - np.arange(window) / window))
-    return w / w.sum()
+def weight_sum(data, half_life, normalize=True):
+    window = len(data)
+    w = 0.5**(np.arange(window) / half_life)[::-1]
+    if normalize:
+        w /= w.sum()
+    return np.nansum(w * data)
 
+def calc_slope(x):
+    x = x[~np.isnan(x)]
+    n = len(x)
+    if n < 2:
+        return np.nan
+    # 构造权重并计算斜率
+    w = np.arange(n) - (n - 1) / 2.0
+    return np.dot(x, w) / np.sum(w**2)
 
-@njit(cache=True)
-def _ewrs_core(arr_clean, nan_f, w0, q, qk, k, T, N):
-    V = np.empty((T, N))
-    V[0] = arr_clean[0]
-    C = np.empty((T, N))
-    C[0] = nan_f[0]
-    for t in range(1, T):
-        v = arr_clean[t] + q * V[t - 1]
-        c = nan_f[t] + C[t - 1]
-        if t >= k:
-            v -= qk * arr_clean[t - k]
-            c -= nan_f[t - k]
-        V[t] = v
-        C[t] = c
-    return V, C
+def MAD_winsorize(x, multiplier=5):
+    x_M = np.nanmedian(x)
+    x_MAD = np.nanmedian(np.abs(x-x_M))
+    upper = x_M + multiplier * x_MAD
+    lower = x_M - multiplier * x_MAD
+    x[x>upper] = upper
+    x[x<lower] = lower
+    return x
 
-
-def exp_wt_rolling_sum(arr, w):
-    """滚动加权求和（numba IIR 递推版，O(T×N)）"""
-    T, N = arr.shape
-    k = len(w)
-    w_rev = w[::-1]
-    q = w_rev[1] / w_rev[0]
-    qk = q ** k
-    nan_mask = np.isnan(arr)
-    arr_clean = np.where(nan_mask, 0.0, arr).astype(np.float64)
-    nan_f = nan_mask.astype(np.float64)
-    V, C = _ewrs_core(arr_clean, nan_f, w_rev[0], q, qk, k, T, N)
-    out = w_rev[0] * V
-    out[C > 0] = np.nan
-    out[:k - 1] = np.nan
-    return out
-
-
-@njit(cache=True)
-def _slope_5y_core(mat, target_years, annual_years, yc5, ss5, T, N):
-    """numba 核心：5年回归斜率/均值"""
-    result = np.full((T, N), np.nan)
-    n_annual = len(annual_years)
-    for i in range(T):
-        # 找到最后5个 <= target_years[i] 的年度索引
-        count = 0
-        last5 = np.empty(5, dtype=np.int64)
-        for j in range(n_annual):
-            if annual_years[j] <= target_years[i]:
-                last5[count % 5] = j
-                count += 1
-        if count >= 5:
-            # 取最后5个
-            start = count - 5
-            idx = np.empty(5, dtype=np.int64)
-            for s in range(5):
-                idx[s] = last5[(start + s) % 5]
-            for n in range(N):
-                slope = 0.0
-                mean = 0.0
-                valid = True
-                for s in range(5):
-                    val = mat[idx[s], n]
-                    if np.isnan(val):
-                        valid = False
-                        break
-                    slope += yc5[s] * val
-                    mean += val
-                if valid:
-                    slope /= ss5
-                    mean /= 5.0
-                    if np.abs(mean) > 1e-8:
-                        result[i, n] = slope / mean
-    return result
-
-
-def slope_5y(mat, annual_dates, target_dates):
-    """
-    过去5个财年对时间回归的斜率 / 均值（numba 加速）
-    mat: (n_annual, N) 年度数据
-    annual_dates: DatetimeIndex 年度日期
-    target_dates: 目标日期数组
-    返回 (T, N)
-    """
-    yc5 = np.arange(5, dtype=np.float64) - 2.0
-    ss5 = (yc5 ** 2).sum()
-    annual_years = pd.DatetimeIndex(annual_dates).year.to_numpy(dtype=np.float64)
-    target_years = pd.DatetimeIndex(target_dates).year.to_numpy(dtype=np.float64)
-    return _slope_5y_core(np.ascontiguousarray(mat, dtype=np.float64),
-                          target_years, annual_years, yc5, ss5,
-                          len(target_dates), mat.shape[1])
-
-
-@njit(cache=True)
-def _variation_5y_core(arr, annual_years, target_years, T, N):
-    """numba 核心：5年波动率"""
-    result = np.full((T, N), np.nan)
-    n_annual = len(annual_years)
-    for i in range(T):
-        count = 0
-        last5 = np.empty(5, dtype=np.int64)
-        for j in range(n_annual):
-            if annual_years[j] <= target_years[i]:
-                last5[count % 5] = j
-                count += 1
-        if count >= 5:
-            start = count - 5
-            idx = np.empty(5, dtype=np.int64)
-            for s in range(5):
-                idx[s] = last5[(start + s) % 5]
-            for n in range(N):
-                mean = 0.0
-                valid_count = 0
-                for s in range(5):
-                    val = arr[idx[s], n]
-                    if not np.isnan(val):
-                        mean += val
-                        valid_count += 1
-                if valid_count >= 5:
-                    mean /= 5.0
-                    if np.abs(mean) > 1e-6:
-                        var = 0.0
-                        for s in range(5):
-                            diff = arr[idx[s], n] - mean
-                            var += diff * diff
-                        var /= 4.0  # ddof=1
-                        result[i, n] = np.sqrt(var) / np.abs(mean)
-    return result
-
-
-def variation_5y(annual_df, dates, universe):
-    """5年波动率（numba 加速）"""
-    annual_years = pd.DatetimeIndex(annual_df.index).year.to_numpy(dtype=np.float64)
-    target_years = pd.DatetimeIndex(dates).year.to_numpy(dtype=np.float64)
-    arr = np.ascontiguousarray(annual_df.reindex(columns=universe).values, dtype=np.float64)
-    return _variation_5y_core(arr, annual_years, target_years, len(dates), arr.shape[1])
-
+def align_to_trade_dates(data, start_date, end_date):
+    data = data.set_index(['ts_code', 'ann_date']).reindex(
+    pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
+    names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
+    data = data[data['ann_date'].between(start_date, end_date)]
+    trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+    data = data[data['ann_date'].isin(trade_cal)]
 
 # ── 主函数 ────────────────────────────────────────────────────────────────────
 
@@ -175,310 +66,225 @@ def calc_fund_factors(start_date, end_date, allstocks):
 
     # ── 加载数据 ──────────────────────────────────────────────────────────────
     print('加载基础数据...')
-    basic = get_basic(start_date=load_start, end_date=end_date,
-                      fields=['circ_mv', 'pb', 'pe_ttm', 'dv_ttm', 'turnover_rate'])
-    basic = basic[basic['ts_code'].isin(allstocks)].copy()
-    basic['trade_date'] = pd.to_datetime(basic['trade_date'])
+    basic = get_basic(codes=allstocks, start_date=load_start, end_date=end_date,
+                      fields=['circ_mv','total_mv' ,'pb', 'pe_ttm', 'dv_ttm', 'turnover_rate'])
 
     print('加载财务数据...')
-    fin = get_finance(start_date=fin_start, end_date=end_date, fields=[
-        'total_assets', 'total_liab', 'total_ncl', 'non_cur_liab_due_1y',
-        'lt_borr', 'st_borr', 'total_share', 'basic_eps', 'total_revenue',
-        'n_income', 'n_income_attr_p', 'n_incr_cash_cash_equ', 'total_cogs',
-        'ebit', 'minority_int', 'total_hldr_eqy_exc_min_int',
-        'oth_eqt_tools_p_shr', 'depr_fa_coga_dpba', 'amort_intang_assets',
-        'lt_amort_deferred_exp', 'n_cashflow_act', 'n_cashflow_inv_act',
-        'c_pay_acq_const_fiolta', 'c_cash_equ_end_period',
-    ])
-    fin = fin[fin['ts_code'].isin(allstocks)].copy()
+    fin = get_finance(codes=allstocks, start_date=fin_start, end_date=end_date, fields=[
+        'total_assets', 'total_liab', 'total_ncl','oth_eqt_tools_p_shr',
+        'total_hldr_eqy_inc_min_int','c_cash_equ_end_period']).ffill()
+    fin.iloc[:, 3:] = fin.iloc[:, 3:]/10000  # 财务数据单位转换为万元
 
     print('加载TTM数据...')
-    fin_ttm = get_finance_ttm(start_date=ttm_start, end_date=end_date, fields=[
-        'revenue_ttm', 'total_revenue_ttm', 'n_income_ttm', 'n_income_attr_p_ttm',
-        'n_incr_cash_cash_equ_ttm', 'total_cogs_ttm', 'ebit_ttm',
+    fin_ttm = get_finance_ttm(codes=allstocks, start_date=ttm_start, end_date=end_date, fields=[
+        'total_revenue_ttm', 'n_income_attr_p_ttm', 'total_cogs_ttm', 'ebit_ttm', 
         'depr_fa_coga_dpba_ttm', 'amort_intang_assets_ttm', 'lt_amort_deferred_exp_ttm',
-        'n_cashflow_act_ttm', 'n_cashflow_inv_act_ttm',
-        'c_pay_acq_const_fiolta_ttm', 'c_cash_equ_end_period_ttm', 'basic_eps_ttm'])
-    fin_ttm = fin_ttm[fin_ttm['ts_code'].isin(allstocks)].copy()
-    fin_ttm = fin_ttm.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last')
-
-    print('加载分析师预测数据...')
-    predict = get_report_roll(year=int(start_date[:4]),
-                              start_date=load_start, end_date=end_date)
+        'n_cashflow_act_ttm', 'n_cashflow_inv_act_ttm'])
+    fin_ttm.iloc[:, 3:] = fin_ttm.iloc[:, 3:]/10000  # TTM数据单位转换为万元
 
     # ── 构建基础矩阵 ─────────────────────────────────────────────────────────
     dates = np.sort(basic['trade_date'].unique())
     universe = np.sort(basic['ts_code'].unique())
-    n_dates, n_stocks = len(dates), len(universe)
+    
+    n_dates, n_stocks = basic.shape
     print(f'矩阵: {n_dates} 交易日 × {n_stocks} 只股票')
 
     # basic 数据 pivot
     circ_mv = basic.pivot(index='trade_date', columns='ts_code', values='circ_mv') \
-                    .reindex(index=dates, columns=universe).values  # 单位：万元
+                    .reindex(index=dates, columns=universe)  # 单位：万元
+    total_mv = basic.pivot(index='trade_date', columns='ts_code', values='total_mv') \
+                    .reindex(index=dates, columns=universe)  # 单位：万元
     pb = basic.pivot(index='trade_date', columns='ts_code', values='pb') \
-              .reindex(index=dates, columns=universe).values
+              .reindex(index=dates, columns=universe)
     pe_ttm = basic.pivot(index='trade_date', columns='ts_code', values='pe_ttm') \
-                   .reindex(index=dates, columns=universe).values
+                   .reindex(index=dates, columns=universe)
     dv_ttm = basic.pivot(index='trade_date', columns='ts_code', values='dv_ttm') \
-                   .reindex(index=dates, columns=universe).values
+                   .reindex(index=dates, columns=universe)
     turnover = basic.pivot(index='trade_date', columns='ts_code', values='turnover_rate') \
-                     .reindex(index=dates, columns=universe).values
+                     .reindex(index=dates, columns=universe)
+    
+    total_revenue_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='total_revenue_ttm').reindex(index=dates, columns=universe)
+    n_income_attr_p_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='n_income_attr_p_ttm').reindex(index=dates, columns=universe)
+    total_cogs_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='total_cogs_ttm').reindex(index=dates, columns=universe)
+    ebit_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='ebit_ttm').reindex(index=dates, columns=universe)
+    depr_fa_coga_dpba_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='depr_fa_coga_dpba_ttm').reindex(index=dates, columns=universe)
+    amort_intang_assets_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='amort_intang_assets_ttm').reindex(index=dates, columns=universe)
+    lt_amort_deferred_exp_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='lt_amort_deferred_exp_ttm').reindex(index=dates, columns=universe)
+    n_cashflow_act_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='n_cashflow_act_ttm').reindex(index=dates, columns=universe)
+    n_cashflow_inv_act_ttm = fin_ttm.pivot(index='trade_date', columns='ts_code', values='n_cashflow_inv_act_ttm').reindex(index=dates, columns=universe)
 
-    # 索引映射（用于快速 pivot）
-    date_idx = pd.Series(np.arange(len(dates)), index=dates)
-    stock_idx = pd.Series(np.arange(len(universe)), index=universe)
-
-    # TTM 数据 pivot — numpy 索引
-    ttm_fields = ['revenue_ttm', 'total_revenue_ttm', 'n_income_attr_p_ttm',
-                  'n_cashflow_act_ttm', 'total_cogs_ttm', 'ebit_ttm',
-                  'depr_fa_coga_dpba_ttm', 'amort_intang_assets_ttm', 'lt_amort_deferred_exp_ttm',
-                  'c_pay_acq_const_fiolta_ttm', 'n_cashflow_inv_act_ttm']
-    ttm_di = fin_ttm['trade_date'].map(date_idx).values
-    ttm_si = fin_ttm['ts_code'].map(stock_idx).values
-    ttm_valid = ~(np.isnan(ttm_di) | np.isnan(ttm_si))
-    ttm_di = ttm_di[ttm_valid].astype(int)
-    ttm_si = ttm_si[ttm_valid].astype(int)
-
-    ttm_arrays = {}
-    for field in ttm_fields:
-        arr = np.full((n_dates, n_stocks), np.nan)
-        vals = fin_ttm[field].values[ttm_valid]
-        arr[ttm_di, ttm_si] = vals
-        ttm_arrays[field] = arr
-
-    rev_ttm = ttm_arrays['revenue_ttm']
-    ni_ttm = ttm_arrays['n_income_attr_p_ttm']
-    cfo_ttm = ttm_arrays['n_cashflow_act_ttm']
-    cogs_ttm = ttm_arrays['total_cogs_ttm']
-    ebit_ttm = ttm_arrays['ebit_ttm']
-    da_ttm = ttm_arrays['depr_fa_coga_dpba_ttm'] + ttm_arrays['amort_intang_assets_ttm'] + ttm_arrays['lt_amort_deferred_exp_ttm']
-    capex_ttm = ttm_arrays['c_pay_acq_const_fiolta_ttm']
-    cfi_ttm = ttm_arrays['n_cashflow_inv_act_ttm']
-
-    # 资产负债表（最新值）— 用 numpy 索引替代逐字段 pivot
-    fin_fields = ['total_assets', 'total_liab', 'total_ncl', 'non_cur_liab_due_1y',
-                  'lt_borr', 'total_share', 'minority_int', 'total_hldr_eqy_exc_min_int',
-                  'oth_eqt_tools_p_shr', 'basic_eps', 'n_income_attr_p',
-                  'c_cash_equ_end_period', 'total_revenue', 'n_income', 'n_incr_cash_cash_equ']
-    fin_di = fin['trade_date'].map(date_idx).values
-    fin_si = fin['ts_code'].map(stock_idx).values
-    valid_mask = ~(np.isnan(fin_di) | np.isnan(fin_si))
-    fin_di = fin_di[valid_mask].astype(int)
-    fin_si = fin_si[valid_mask].astype(int)
-
-    fin_arrays = {}
-    for field in fin_fields:
-        arr = np.full((n_dates, n_stocks), np.nan)
-        vals = fin[field].values[valid_mask]
-        arr[fin_di, fin_si] = vals
-        fin_arrays[field] = arr
-
-    total_assets = fin_arrays['total_assets']
-    total_liab = fin_arrays['total_liab']
-    total_ncl = fin_arrays['total_ncl']
-    ncl_due_1y = fin_arrays['non_cur_liab_due_1y']
-    lt_borr = fin_arrays['lt_borr']
-    total_share = fin_arrays['total_share']
-    minority_int = fin_arrays['minority_int']
-    eqt_exc_min = fin_arrays['total_hldr_eqy_exc_min_int']
-    oth_eqt = fin_arrays['oth_eqt_tools_p_shr']
-    basic_eps = fin_arrays['basic_eps']
-    ni_attr_p = fin_arrays['n_income_attr_p']
-    c_cash_end = fin_arrays['c_cash_equ_end_period']
-    revenue = fin_arrays['total_revenue']
-    n_income = fin_arrays['n_income']
-    n_incr_cash = fin_arrays['n_incr_cash_cash_equ']
-
+    total_assets = fin.pivot(index='trade_date', columns='ts_code', values='total_assets').reindex(index=dates, columns=universe)
+    total_liab = fin.pivot(index='trade_date', columns='ts_code', values='total_liab').reindex(index=dates, columns=universe)
+    total_ncl = fin.pivot(index='trade_date', columns='ts_code', values='total_ncl').reindex(index=dates, columns=universe)
+    total_hldr_eqy = fin.pivot(index='trade_date', columns='ts_code', values='total_hldr_eqy_inc_min_int').reindex(index=dates, columns=universe)
+    oth_eqt_tools_p_shr = fin.pivot(index='trade_date', columns='ts_code', values='oth_eqt_tools_p_shr').reindex(index=dates, columns=universe)
+    
     # ================================================================
     # 换手率因子
     # ================================================================
     print('计算换手率因子...')
-    stom = np.log(pd.DataFrame(turnover).rolling(21, min_periods=21).sum().values + 1)
-    stoq_data = np.log(turnover + 1)
-    stoq = np.log(pd.DataFrame(stoq_data).rolling(63, min_periods=63).mean().values * 63 + 1)
-    stoa_data = np.log(turnover + 1)
-    stoa = np.log(pd.DataFrame(stoa_data).rolling(252, min_periods=252).mean().values * 252 + 1)
+    stom = np.log(turnover.rolling(21, min_periods=1).sum()).loc[start_date:end_date]
+    
+    exp_STOM_sum = 0
+    for i in range(3):
+        exp_STOM_sum += np.exp(stom.shift(i * 21))
+    stoq = np.log(exp_STOM_sum / 3).loc[start_date:end_date]
 
-    w_atvr = make_weights(252, 63)
-    atvr = exp_wt_rolling_sum(turnover, w_atvr)
+    exp_STOM_sum = 0
+    for i in range(12):
+        exp_STOM_sum += np.exp(stom.shift(i * 21))
+    stoa = np.log(exp_STOM_sum / 12).loc[start_date:end_date]
+
+    atvr = turnover.rolling(window=252, min_periods=1).apply(
+        lambda x: weight_sum(x, 63, normalize=False), raw=True).loc[start_date:end_date]
+
 
     # ================================================================
     # 市值因子
     # ================================================================
     print('计算市值因子...')
-    lncap = np.log(circ_mv)
-    midcap = lncap ** 3
-
+    lncap = np.log(circ_mv).loc[start_date:end_date]
+    midcap = (lncap ** 3)
+    midcap = midcap.loc[start_date:end_date]
     # ================================================================
     # 估值/杠杆因子
     # ================================================================
     print('计算估值/杠杆因子...')
-    # 财务数据单位：元；circ_mv 单位：万元
-    # 统一到万元
-    total_assets_w = total_assets / 10000
-    total_liab_w = total_liab / 10000
-    total_ncl_w = total_ncl / 10000
-    equity_w = total_assets_w - total_liab_w
-    pe_bv_w = oth_eqt * total_share / 10000  # oth_eqt(元/股) * total_share(万股) / 10000
-    minority_int_w = minority_int / 10000
-    c_cash_end_w = c_cash_end / 10000
-    # LD = total_ncl(非流动负债) 替代 lt_borr(lt_borr NaN 太多)
-    ld_w = total_ncl_w
 
-    me = circ_mv  # 万元
-
-    mlev = np.clip((me + pe_bv_w + ld_w) / me, 0, 10)
-    blev = np.clip((equity_w + pe_bv_w + ld_w) / me, 0, 10)
+    mlev = (total_mv + oth_eqt_tools_p_shr + total_ncl) / total_mv
+    mlev = mlev.loc[start_date:end_date]
+    blev = (total_hldr_eqy + oth_eqt_tools_p_shr + total_ncl) / total_mv
+    blev = blev.loc[start_date:end_date]
     dtoa = total_liab / total_assets
+    dtoa = dtoa.loc[start_date:end_date]
 
-    btp = 1.0 / np.where(np.abs(pb) > 1e-6, pb, np.nan)
-    etp = 1.0 / np.where(np.abs(pe_ttm) > 1e-6, pe_ttm, np.nan)
-    cftp = ni_ttm / 10000 / me  # ni_ttm(元) / 10000 / me(万元)
+    btp = 1.0 / pb
+    btp = btp.loc[start_date:end_date]
+    etp = 1.0 / pe_ttm
+    etp = etp.loc[start_date:end_date]
+    cftp = n_income_attr_p_ttm  / total_mv
+    cftp = cftp.loc[start_date:end_date]
+    ebit_ev = ebit_ttm / total_mv
+    ebit_ev = ebit_ev.loc[start_date:end_date]
 
-    ev = me + total_ncl_w + pe_bv_w + minority_int_w - c_cash_end_w
-    ebit_ev = ebit_ttm / 10000 / ev  # ebit_ttm(元) / 10000 / ev(万元)
-
-    dp = dv_ttm / 100.0  # 已是百分比
-
+    dp = dv_ttm.loc[start_date:end_date]
+    
+    # ================================================================
+    # 盈利能力
+    # ================================================================
+    print('计算盈利能力...')
+    ato = total_revenue_ttm / total_assets
+    gp = (total_revenue_ttm - total_cogs_ttm) / total_assets
+    gpm = (total_revenue_ttm - total_cogs_ttm) / total_revenue_ttm
+    roa = n_income_attr_p_ttm / total_assets
+    
     # ================================================================
     # 财务质量因子（5年波动率）
     # ================================================================
     print('计算财务质量因子...')
-    # 提取年度数据（Q4 报告）
-    fin['stat_date'] = pd.to_datetime(fin['stat_date'])
-    # 每个 ts_code+trade_date 只保留最新报告（按 stat_date 降序取第一条）
-    fin = fin.sort_values(['ts_code', 'trade_date', 'stat_date'], ascending=[True, True, False])
-    fin = fin.drop_duplicates(subset=['ts_code', 'trade_date'], keep='first')
-    q4_mask = fin['stat_date'].dt.month == 12
-    fin_annual = fin[q4_mask].copy()
-
-    # 年度 pivot
-    fin_annual = fin_annual.drop_duplicates(subset=['ts_code', 'stat_date'], keep='last')
-
-    def annual_pivot(field):
-        df = fin_annual.pivot(index='stat_date', columns='ts_code', values=field)
-        return df
-
-    rev_annual = annual_pivot('total_revenue')
-    ni_annual = annual_pivot('n_income')
-    cash_annual = annual_pivot('n_incr_cash_cash_equ')
-
-    # ACCR_BS 用的年度数组
-    ta_annual_df = annual_pivot('total_assets').reindex(columns=universe)
-    tl_annual_df = annual_pivot('total_liab').reindex(columns=universe)
-    ncl_annual_df = annual_pivot('total_ncl').reindex(columns=universe)
-    cash_end_annual_df = annual_pivot('c_cash_equ_end_period').reindex(columns=universe)
-    ta_annual_arr = ta_annual_df.values
-    tl_annual_arr = tl_annual_df.values
-    ncl_annual_arr = ncl_annual_df.values
-    cash_annual_arr = cash_end_annual_df.values
-    annual_dates = ta_annual_df.index
-
-    # 5年波动率（numba 加速）
-    var_sales = variation_5y(rev_annual, dates, universe)
-    var_earnings = variation_5y(ni_annual, dates, universe)
-    var_cashflows = variation_5y(cash_annual, dates, universe)
+    var_ttm = get_finance_ttm(codes=allstocks, start_date=ttm_start, end_date=end_date, fields=[
+        'total_revenue_ttm', 'n_income_attr_p_ttm','n_incr_cash_cash_equ_ttm'], align_trade_date=False)
+    var_ttm = var_ttm[var_ttm.stat_date.str.contains('1231')]
+    var_ttm.iloc[:, 3:] = var_ttm.iloc[:, 3:]/10000
+    
+    means = var_ttm.set_index('trade_date').groupby('ts_code').rolling(5, min_periods=1)[['total_revenue_ttm','n_income_attr_p_ttm','n_incr_cash_cash_equ_ttm']].mean().reset_index()
+    means = align_to_trade_dates(means, start_date, end_date)
+    stds = var_ttm.set_index('trade_date').groupby('ts_code').rolling(5, min_periods=1)[['total_revenue_ttm','n_income_attr_p_ttm','n_incr_cash_cash_equ_ttm']].std().reset_index()
+    stds = align_to_trade_dates(stds, start_date, end_date)
+    
+    var_sales = stds.pivot(index='trade_date', columns='ts_code', values='total_revenue_ttm').reindex(index=dates, columns=universe) / \
+                means.pivot(index='trade_date', columns='ts_code', values='total_revenue_ttm').reindex(index=dates, columns=universe).loc[start_date:end_date]
+    var_earnings = stds.pivot(index='trade_date', columns='ts_code', values='n_income_attr_p_ttm').reindex(index=dates, columns=universe) / \
+                   means.pivot(index='trade_date', columns='ts_code', values='n_income_attr_p_ttm').reindex(index=dates, columns=universe).loc[start_date:end_date]
+    var_cashflows = stds.pivot(index='trade_date', columns='ts_code', values='n_incr_cash_cash_equ_ttm').reindex(index=dates, columns=universe) / \
+                    means.pivot(index='trade_date', columns='ts_code', values='n_incr_cash_cash_equ_ttm').reindex(index=dates, columns=universe).loc[start_date:end_date]
 
     # ================================================================
     # 应计项目
     # ================================================================
     print('计算应计项目...')
-    # NOA = TA - Cash - (TL - TD)
-    # TD(带息债务) ≈ total_ncl（近似：非流动负债大部分为带息）
-    noa_annual = ta_annual_arr - cash_annual_arr - tl_annual_arr + ncl_annual_arr
+    noa = get_finance(codes=allstocks, start_date='2022-11-01', end_date='2025-12-31', fields=[
+        'total_assets', 'total_liab','non_cur_liab_due_1y','c_cash_equ_end_period', 'total_ncl', 'st_borr'], align_trade_date=False).ffill()
+    noa.iloc[:, 3:] = noa.iloc[:, 3:]/10000
+    noa['noa'] = noa.eval('total_assets - c_cash_equ_end_period - total_liab + non_cur_liab_due_1y + total_ncl + st_borr')
+    noa['noa'] = noa.groupby('ts_code')['noa'].diff()
+    noa = align_to_trade_dates(noa, start_date, end_date).pivot(index='trade_date', columns='ts_code', values='noa').reindex(index=dates, columns=universe)
+    DA = depr_fa_coga_dpba_ttm + amort_intang_assets_ttm + lt_amort_deferred_exp_ttm
+    accr_bs = (DA - noa) / total_assets
+    accr_bs = accr_bs.loc[start_date:end_date]
 
-    # ACCR_BS = -(NOA_t - NOA_{t-1}) / TA_t，使用年度Q4报告间的差分
-    accr_bs = np.full((n_dates, n_stocks), np.nan)
-    for i, d in enumerate(dates):
-        valid = [j for j, yd in enumerate(annual_dates) if yd <= d]
-        if len(valid) >= 2:
-            curr, prev = valid[-1], valid[-2]
-            d_noa = noa_annual[curr] - noa_annual[prev]
-            accr_bs[i] = -d_noa / np.where(np.abs(ta_annual_arr[curr]) > 1e-6, ta_annual_arr[curr], np.nan)
+    accr_cf = (n_cashflow_act_ttm + n_cashflow_inv_act_ttm -n_income_attr_p_ttm - DA) / total_assets
+    accr_cf = accr_cf.loc[start_date:end_date]
 
-    accr_cf = -(ni_ttm - cfo_ttm + da_ttm) / np.where(np.abs(total_assets) > 1e-6, total_assets, np.nan)
-
-    # ================================================================
-    # 盈利能力
-    # ================================================================
-    print('计算盈利能力...')
-    # total_revenue_ttm 比 revenue_ttm 更完整
-    rev_ttm_full = ttm_arrays['total_revenue_ttm']
-    ato = rev_ttm_full / total_assets
-    gp = (rev_ttm_full - cogs_ttm) / total_assets
-    gpm = (rev_ttm_full - cogs_ttm) / np.where(np.abs(rev_ttm_full) > 1e-6, rev_ttm_full, np.nan)
-    roa = ni_ttm / total_assets
 
     # ================================================================
     # 投资质量（5年增长率）
     # ================================================================
     print('计算投资质量...')
-    ta_annual = annual_pivot('total_assets')
-    ts_annual = annual_pivot('total_share')
-    capex_annual = annual_pivot('c_pay_acq_const_fiolta')
-    eps_annual = annual_pivot('basic_eps')
-    rev_per_share_annual = annual_pivot('total_revenue')  # 需要除以 total_share
+    growth = get_finance(codes=allstocks, start_date=ttm_start, end_date=end_date, fields=[
+        'total_assets', 'total_share'], align_trade_date=False).ffill()
+    growth = growth[growth.stat_date.str.contains('1231')]
+    growth.iloc[:, 3:] = growth.iloc[:, 3:]/10000
 
-    ta_growth = -slope_5y(ta_annual.reindex(columns=universe).values,
-                          ta_annual.index, dates)
-    issuance_growth = -slope_5y(ts_annual.reindex(columns=universe).values,
-                                ts_annual.index, dates)
-    capex_growth = -slope_5y(capex_annual.reindex(columns=universe).values,
-                             capex_annual.index, dates)
+    ta_growth = growth.set_index('trade_date').groupby('ts_code')['total_assets'].rolling(5, min_periods=1).apply(calc_slope, raw=True).reset_index()
+    ta_growth = align_to_trade_dates(ta_growth, start_date, end_date).pivot(index='trade_date', columns='ts_code', values='total_assets').reindex(index=dates, columns=universe).loc[start_date:end_date]
+    
+    issuance_growth = growth.set_index('trade_date').groupby('ts_code')['total_share'].rolling(5, min_periods=1).apply(calc_slope, raw=True).reset_index()
+    issuance_growth = align_to_trade_dates(issuance_growth, start_date, end_date).pivot(index='trade_date', columns='ts_code', values='total_share').reindex(index=dates, columns=universe).loc[start_date:end_date]
+        
+    growth = get_finance_ttm(codes=allstocks, start_date=ttm_start, end_date=end_date, fields=[
+    'c_pay_acq_const_fiolta_ttm', 'total_revenue_ttm', 'n_income_attr_p_ttm','basic_eps_ttm'], align_trade_date=False).ffill()
+    growth = growth[growth.stat_date.str.contains('1231')]
+    growth.iloc[:, 3:] = growth.iloc[:, 3:]/10000
 
-    eps_growth = slope_5y(eps_annual.reindex(columns=universe).values,
-                          eps_annual.index, dates)
-    # 每股营收 = 总营收 / 总股本
-    rps_annual_arr = rev_annual.reindex(columns=universe).values / \
-                     np.where(ts_annual.reindex(columns=universe).values > 0,
-                              ts_annual.reindex(columns=universe).values, np.nan)
-    sps_growth = slope_5y(rps_annual_arr, rev_annual.index, dates)
+    capex_growth = growth.set_index('trade_date').groupby('ts_code')['c_pay_acq_const_fiolta_ttm'].rolling(5, min_periods=1).apply(calc_slope, raw=True).reset_index()
+    capex_growth = align_to_trade_dates(capex_growth, start_date, end_date).pivot(index='trade_date', columns='ts_code', values='c_pay_acq_const_fiolta_ttm').reindex(index=dates, columns=universe).loc[start_date:end_date]
+    
+    eps_growth = growth.set_index('trade_date').groupby('ts_code')['basic_eps_ttm'].rolling(5, min_periods=1).apply(calc_slope, raw=True).reset_index()
+    eps_growth = align_to_trade_dates(eps_growth, start_date, end_date).pivot(index='trade_date', columns='ts_code', values='basic_eps_ttm').reindex(index=dates, columns=universe).loc[start_date:end_date]
+    
+    growth['sps_ttm'] = growth.eval('total_revenue_ttm / n_income_attr_p_ttm * basic_eps_ttm')
+    sps_growth = growth.set_index('trade_date').groupby('ts_code')['sps_ttm'].rolling(5, min_periods=1).apply(calc_slope, raw=True).reset_index()
+    sps_growth = align_to_trade_dates(sps_growth, start_date, end_date).pivot(index='trade_date', columns='ts_code', values='sps_ttm').reindex(index=dates, columns=universe).loc[start_date:end_date]
 
     # ================================================================
     # 分析师预测因子
     # ================================================================
+    
+    print('加载分析师预测数据...')
+    years = list(range(pd.to_datetime(start_date).year, pd.to_datetime(end_date).year + 5))
+    pred = get_report_roll(codes=allstocks, year=years, start_date=load_start, end_date=end_date, fields=[
+        'np_roll_std', 'np_roll_mean', 'rd_roll_mean', 'roe_roll_mean', 'eps_roll_mean', 'roll_cnt'])
+    pred = pred[pred['quarter'].notna()]
+    
     print('计算分析师预测因子...')
-    pred = predict.copy()
-    pred['trade_date'] = pd.to_datetime(pred['trade_date'])
-    pred = pred.drop_duplicates(subset=['ts_code', 'trade_date'], keep='last')
+    exact_year = pred[pred['trade_date'].dt.year ==pred['quarter'].apply(lambda x: int(x[:4]))]
+    np_std = exact_year.pivot(index='trade_date', columns='ts_code', values='np_roll_std') \
+                   .reindex(index=dates, columns=universe)
+    sdafep = np_std / total_mv
+    sdafep = sdafep.loc[start_date:end_date]
+    np_mean = exact_year.pivot(index='trade_date', columns='ts_code', values='np_roll_mean') \
+                   .reindex(index=dates, columns=universe)
+    apebs = np_mean / total_mv
+    delta_apebs = sum([apebs.pct_change(periods=63).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
+    apebs = apebs.loc[start_date:end_date]
+    adtp = exact_year.pivot(index='trade_date', columns='ts_code', values='rd_roll_mean') \
+                   .reindex(index=dates, columns=universe)
+    adtp = adtp.loc[start_date:end_date]
 
-    # eps_std / close → sdafep
-    eps_std = pred.pivot(index='trade_date', columns='ts_code', values='eps_roll_std') \
-                   .reindex(index=dates, columns=universe).values
-    # close = circ_mv(万元) * 10000 / total_share(股) = 元/股
-    close_proxy = circ_mv * 10000 / np.where(total_share > 0, total_share, np.nan)
-    sdafep = eps_std / np.where(np.abs(close_proxy) > 0.01, close_proxy, np.nan)
+    # 预测4年增长率
+    future = pred[pred['trade_date'].dt.year ==pred['quarter'].apply(lambda x: int(x[:4]+4))]  # 4年后预测值近似未来3年增长率
+    pred_growth3 = future.pivot(index='trade_date', columns='ts_code', values='roe_roll_mean') \
+                  .reindex(index=dates, columns=universe)
+    pred_growth3 = pred_growth3.loc[start_date:end_date]
+    # 变化比率
+    eps_mean = exact_year.pivot(index='trade_date', columns='ts_code', values='eps_roll_mean') \
+                   .reindex(index=dates, columns=universe)
+    delta_eps = sum([eps_mean.pct_change(periods=63).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
 
-    eps_mean = pred.pivot(index='trade_date', columns='ts_code', values='eps_roll_mean') \
-                    .reindex(index=dates, columns=universe).values
-    np_mean = pred.pivot(index='trade_date', columns='ts_code', values='np_roll_mean') \
-                   .reindex(index=dates, columns=universe).values
-    # np_mean(万元) / me(万元) = 无量纲
-    apebs = np_mean / me
-
-    rd_mean = pred.pivot(index='trade_date', columns='ts_code', values='rd_roll_mean') \
-                   .reindex(index=dates, columns=universe).values
-    # rd_mean(元/股) / close(元/股)
-    adtp = rd_mean / np.where(np.abs(close_proxy) > 0.01, close_proxy, np.nan)
-
-    # 预测3年增长率
-    np_std = pred.pivot(index='trade_date', columns='ts_code', values='np_roll_std') \
-                  .reindex(index=dates, columns=universe).values
-    pred_growth3 = np_mean / np.where(np.abs(np_std) > 1e-6, np_std, np.nan)  # 简化
-
-    # Revision ratio: (up - down) / total — 需要原始报告数据，暂用 roll_cnt 近似
-    roll_cnt = pred.pivot(index='trade_date', columns='ts_code', values='roll_cnt') \
-                    .reindex(index=dates, columns=universe).values
-    # 暂不实现 revision_ratio（需要原始 up/down 数据）
-
-    # Change in APEBS: 63日变化
-    apebs_df = pd.DataFrame(apebs, index=dates, columns=universe)
-    delta_apebs = apebs_df.diff(63).values / apebs_df.shift(63).values
-
-    # Change in predicted EPS: 63日变化
-    eps_mean_df = pd.DataFrame(eps_mean, index=dates, columns=universe)
-    delta_eps = eps_mean_df.diff(63).values / eps_mean_df.shift(63).values
-
+    roll_cnt = exact_year.pivot(index='trade_date', columns='ts_code', values='roll_cnt') \
+                   .reindex(index=dates, columns=universe)
+    delta_cnt = sum([roll_cnt.pct_change(periods=63).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
     # ================================================================
     # 组装输出
     # ================================================================
@@ -512,7 +318,7 @@ def calc_fund_factors(start_date, end_date, allstocks):
         'SDAFEP': sdafep.ravel(), 'APEBS': apebs.ravel(),
         'PRED_GROWTH3': pred_growth3.ravel(),
         'ADTP': adtp.ravel(), 'DELTA_APEBS': delta_apebs.ravel(),
-        'DELTA_EPS': delta_eps.ravel(),
+        'DELTA_EPS': delta_eps.ravel(), 'DELTA_CNT': delta_cnt.ravel()
     })
 
     # 截取目标日期范围
