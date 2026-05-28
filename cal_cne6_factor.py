@@ -32,7 +32,7 @@ def align_to_trade_dates(data, start_date, end_date):
     
 # ── 主函数 ────────────────────────────────────────────────────────────────────
 
-def calc_price_factors(start_date, end_date, allstocks):
+def calc_cne6_factors(start_date, end_date, allstocks):
     """
     计算 CNE-6 价格类因子
 
@@ -46,7 +46,7 @@ def calc_price_factors(start_date, end_date, allstocks):
     DataFrame  主键 ts_code + cal_date
     """
     # ── 提前加载足够历史数据（覆盖最长窗口 1040 日 + 季节性 5 年月度）──
-    load_start = (pd.Timestamp(start_date) - pd.DateOffset(month=13)).strftime('%Y-%m-%d')
+    load_start = (pd.Timestamp(start_date) - pd.DateOffset(months=13)).strftime('%Y-%m-%d')
 
     print('加载价格数据...')
     price = get_price(codes=allstocks, start_date=load_start, end_date=end_date, fields=['close', 'pre_close'])
@@ -409,7 +409,7 @@ def calc_price_factors(start_date, end_date, allstocks):
     np_mean = exact_year.pivot(index='trade_date', columns='ts_code', values='np_roll_mean') \
                     .reindex(index=dates, columns=universe)
     apebs = np_mean / total_mv
-    delta_apebs = sum([apebs.pct_change(periods=63).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
+    delta_apebs = sum([apebs.pct_change(periods=63).fillna(0).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
     apebs = apebs.loc[start_date:end_date]
     adtp = exact_year.pivot(index='trade_date', columns='ts_code', values='rd_roll_mean') \
                     .reindex(index=dates, columns=universe)
@@ -423,11 +423,11 @@ def calc_price_factors(start_date, end_date, allstocks):
     # 变化比率
     eps_mean = exact_year.pivot(index='trade_date', columns='ts_code', values='eps_roll_mean') \
                     .reindex(index=dates, columns=universe)
-    delta_eps = sum([eps_mean.pct_change(periods=63).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
+    delta_eps = sum([eps_mean.pct_change(periods=63).fillna(0).shift(i*63).div(i+1) for i in range(4)]).loc[start_date:end_date]
 
     roll_cnt = exact_year.pivot(index='trade_date', columns='ts_code', values='roll_cnt') \
                     .reindex(index=dates, columns=universe)
-    delta_cnt = sum([roll_cnt.pct_change(periods=21).shift(i*21).div(i+1) for i in range(4)]).loc[start_date:end_date]
+    delta_cnt = sum([roll_cnt.pct_change(periods=21).fillna(0).shift(i*21).div(i+1) for i in range(4)]).loc[start_date:end_date]
     
     # ================================================================
     # 组装输出
@@ -458,6 +458,6 @@ if __name__ == '__main__':
     allstocks = pd.read_csv('data/allstock.csv')
     allstocks = allstocks[~allstocks['ts_code'].str.contains('BJ')].ts_code.tolist()
 
-    df = calc_price_factors(start_date='2024-01-01', end_date='2025-12-31', allstocks=allstocks)
+    df = calc_cne6_factors(start_date='2024-01-01', end_date='2025-12-31', allstocks=allstocks)
     
     

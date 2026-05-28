@@ -305,7 +305,7 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
     else:
         return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     
-def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=[2025],  fields=None, data_path='data/report_rc/roll_data'):
+def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=[2025],  fields=None, data_path='data/report_rc/roll_data', align_trade_date=True):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'report_date','quarter']
@@ -319,12 +319,13 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
             tmp = tmp[tmp['ts_code'].isin(codes)]
         tmp = tmp.sort_values(['ts_code', 'report_date'])
         tmp['report_date'] = pd.to_datetime(tmp['report_date'])
-        tmp = tmp.set_index(['ts_code', 'report_date']).reindex(
-            pd.MultiIndex.from_product([tmp['ts_code'].unique(), pd.date_range(tmp['report_date'].min(), end_date, freq='D')],
-            names=['ts_code', 'report_date'])).groupby(level='ts_code').ffill().reset_index()
-        tmp = tmp[tmp['report_date'].between(start_date, end_date)]
-        trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
-        tmp = tmp[tmp['report_date'].isin(trade_cal)]
+        if align_trade_date:
+            tmp = tmp.set_index(['ts_code', 'report_date']).reindex(
+                pd.MultiIndex.from_product([tmp['ts_code'].unique(), pd.date_range(tmp['report_date'].min(), end_date, freq='D')],
+                names=['ts_code', 'report_date'])).groupby(level='ts_code').ffill().reset_index()
+            tmp = tmp[tmp['report_date'].between(start_date, end_date)]
+            trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+            tmp = tmp[tmp['report_date'].isin(trade_cal)]
         data.append(tmp)
     data = pd.concat(data)
     if fields is None:
