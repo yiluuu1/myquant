@@ -337,3 +337,119 @@ def get_trade_cal(start_date='2023-03-01', end_date='2023-07-17', data_path='dat
     data = pd.read_csv(data_path).sort_values('cal_date')
     data['cal_date'] = pd.to_datetime(data['cal_date'])
     return data[(data['cal_date'] >= start_date) & (data['cal_date'] <= end_date) & (data['is_open'] == 1)]['cal_date'].tolist()
+
+def get_cyq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/cyq'):
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'cyq-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+
+def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='data/ETF'):
+
+    # 筛选字段
+    fields1 = None
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+        fields1 = fields.copy()
+        if fq is not None:
+            fields1 = fields + ['adj_factor']
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'etf-{d.strftime("%Y%m%d")}.ftr'), columns=fields1)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    # 复权操作
+    if fq is not None:
+        if fq == 'post':
+            pass
+        elif fq == 'pre':
+            data1 = data.copy()
+            latest_factor = data1.query('trade_date == trade_date.max()').set_index('ts_code')['adj_factor']
+            data1['latest_factor'] = data1['ts_code'].map(latest_factor)
+            data['adj_factor'] = data1.eval('adj_factor/latest_factor')
+        
+        for col in ['open', 'high', 'low', 'close','pre_close']:
+            try:
+                data[col] = data.eval(f'{col}*adj_factor')
+            except:
+                continue
+        try:
+            data['vol'] = data.eval('vol/adj_factor')
+        except:
+            pass
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+    
+def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/future'):
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'future-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+    
+def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/limit_list'):
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_feather(os.path.join(data_path, f'limit_list-{d.strftime("%Y%m%d")}.ftr'), columns=fields)
+            if isinstance(codes, list):
+                tmp = tmp[tmp['ts_code'].isin(codes)]
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data)
+    data = data.sort_values(['ts_code', 'trade_date']).reset_index(drop=True)
+    if fields is None:
+        return data
+    else:
+        return data[fields]
