@@ -124,7 +124,7 @@ def calc_cne6_factors(start_date, end_date, allstocks):
     # ================================================================
     print('计算 Industry Momentum...')
     #indmom_mat = ret_mat.rolling(window=126, min_periods=1).apply(lambda x: weight_sum(x, 21, normalize=False), raw=True).loc[start_date:end_date]
-    indmom_mat = ret_mat.ewm(halflife=21, adjust=False).sum().loc[start_date:end_date]
+    indmom_mat = ret_mat.ewm(halflife=21).sum().loc[start_date:end_date]
 
     # ================================================================
     # 6. BETA + Hist sigma + Historical alpha（同一 CAPM 回归，252日 / 63日）
