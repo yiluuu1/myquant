@@ -216,6 +216,8 @@ def calc_cne6_factors(start_date, end_date, allstocks):
     print('加载基础数据...')
     basic = get_basic(codes=allstocks, start_date=load_start, end_date=end_date,
                         fields=['circ_mv','total_mv' ,'pb', 'pe_ttm', 'dv_ttm', 'turnover_rate'])
+    basic['dv_ttm'] = basic['dv_ttm'] / 100
+    basic['turnover_rate'] = basic['turnover_rate'] / 100
 
     print('加载财务数据...')
     fin = get_finance(codes=allstocks, start_date=load_start, end_date=end_date, fields=[
@@ -399,6 +401,8 @@ def calc_cne6_factors(start_date, end_date, allstocks):
     pred = get_report_roll(codes=allstocks, year=years, start_date=load_start, end_date=end_date, fields=[
         'np_roll_std', 'np_roll_mean', 'rd_roll_mean', 'roe_roll_mean', 'eps_roll_mean', 'roll_cnt'])
     pred = pred[pred['quarter'].notna()]
+    pred['rd_roll_mean'] = pred['rd_roll_mean'] / 100
+    pred['roe_roll_mean'] = pred['roe_roll_mean'] / 100
 
     print('计算分析师预测因子...')
     exact_year = pred[pred['trade_date'].dt.year ==pred['quarter'].apply(lambda x: int(x[:4]))]
