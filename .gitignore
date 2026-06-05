@@ -9,7 +9,7 @@ venv/
 .venv/
 pip-log.txt
 pip-delete-this-directory.txt
-data/factor/
+data/
 
 # Anaconda / Conda
 .conda/
