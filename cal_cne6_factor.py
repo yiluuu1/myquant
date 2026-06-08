@@ -32,7 +32,7 @@ def align_to_trade_dates(data, start_date, end_date):
     
 # ── 主函数 ────────────────────────────────────────────────────────────────────
 
-def calc_cne6_factors(start_date, end_date, allstocks):
+def calc_cne6_factors(allstocks, start_date, end_date):
     """
     计算 CNE-6 价格类因子
 
