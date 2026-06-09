@@ -8,7 +8,6 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
     codes: 股票代码列表；
     start_date, end_date: 开始结束时间
     fq: 复权pre/post/None
-    fields:字段 ['open', 'high', 'low', 'close', 'vol', 'amount', 'adj_factor']
     """
     # 筛选字段
     fields1 = None
@@ -16,7 +15,7 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
         fields1 = fields.copy()
-        if fq is not None:
+        if fq is not None and 'adj_factor' not in fields:
             fields1 = fields + ['adj_factor']
 
     # 提取数据
@@ -24,12 +23,12 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'stock-{d.strftime("%Y%m%d")}.parquet'), columns=fields1)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data)
+    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     # 复权操作
     if fq is not None:
         if fq == 'post':
@@ -49,7 +48,6 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data['vol'] = data.eval('vol/adj_factor')
         except:
             pass
-    data = data.sort_values(['trade_date','ts_code']).reset_index(drop=True)
     if fields is None:
         return data
     else:
@@ -66,12 +64,12 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'basic-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -88,12 +86,12 @@ def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-
     for d in codes:
         try:
             tmp = pd.read_csv(os.path.join(data_path, f'{d}.csv'), usecols=fields)
-            tmp['trade_date'] = pd.to_datetime(tmp['trade_date'])
-            tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data['trade_date'] = pd.to_datetime(data['trade_date'])
+    data = data[data['trade_date'].between(start_date, end_date)]
     if fields is None:
         return data
     else:
@@ -110,13 +108,12 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
     for d in codes:
         try:
             tmp = pd.read_csv(os.path.join(data_path, f'{d}_basic.csv'), usecols=fields)
-            tmp['trade_date'] = pd.to_datetime(tmp['trade_date'])
-            tmp = tmp[tmp['trade_date'].between(start_date, end_date)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
-    
+    data['trade_date'] = pd.to_datetime(data['trade_date'])
+    data = data[data['trade_date'].between(start_date, end_date)]
     if fields is None:
         return data
     else:
@@ -133,12 +130,12 @@ def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'moneyflow-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -155,12 +152,12 @@ def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'margin-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -177,12 +174,12 @@ def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'toplist-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -197,7 +194,7 @@ def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fie
     # 提取数据
     try:
         data = pd.read_parquet(os.path.join(data_path, f'report-{year}Q4.parquet'), columns=fields)
-        if isinstance(codes, list):
+        if codes is not None:
             data = data[data['ts_code'].isin(codes)]
         if start_date is not None and end_date is not None:
             data = data[data['report_date'].between(start_date, end_date)]
@@ -234,13 +231,13 @@ def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
     for d in pd.date_range(start=get_report_date(start_date), end=get_report_date(end_date), freq='QE'):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'sheet-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data)
-    data = data.sort_values(['ts_code', 'ann_date']).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    data = pd.concat(data).sort_values(['ts_code', 'ann_date']).reset_index(drop=True)
+    data = data.drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     data['ann_date'] = pd.to_datetime(data['ann_date'])
     if align_trade_date:
         data = data.set_index(['ts_code', 'ann_date']).reindex(
@@ -279,13 +276,13 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
     for d in pd.date_range(start=get_report_date(start_date), end=get_report_date(end_date), freq='QE'):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'sheet_ttm-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data)
-    data = data.sort_values(['ts_code', 'ann_date']).drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    data = pd.concat(data).sort_values(['ts_code', 'ann_date']).reset_index(drop=True)
+    data = data.drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     data['ann_date'] = pd.to_datetime(data['ann_date'])
     if align_trade_date:
         data = data.set_index(['ts_code', 'ann_date']).reindex(
@@ -309,12 +306,8 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
     data = []
     for y in year:
         tmp = pd.read_parquet(os.path.join(data_path, f'report_roll-{y}.parquet'), columns=fields)
-        if isinstance(codes, list):
-            tmp = tmp[tmp['ts_code'].isin(codes)]
         if len(tmp)==0:
             continue
-        tmp = tmp.sort_values(['ts_code', 'report_date'])
-        tmp['report_date'] = pd.to_datetime(tmp['report_date'])
         if align_trade_date:
             tmp = tmp.set_index(['ts_code', 'report_date']).reindex(
                 pd.MultiIndex.from_product([tmp['ts_code'].unique(), pd.date_range(tmp['report_date'].min(), end_date, freq='D')],
@@ -323,14 +316,17 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
             trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
             tmp = tmp[tmp['report_date'].isin(trade_cal)]
         data.append(tmp)
-    data = pd.concat(data)
+    data = pd.concat(data).sort_values(['ts_code', 'report_date']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
+    data['report_date'] = pd.to_datetime(data['report_date'])
     if fields is None:
         return data.rename(columns={'report_date':'trade_date'})
     else:
         return data[fields].rename(columns={'report_date':'trade_date'})
     
 def get_trade_cal(start_date='2023-03-01', end_date='2023-07-17', data_path='data/trade_cal.csv'):
-    data = pd.read_csv(data_path).sort_values('cal_date')
+    data = pd.read_csv(data_path).sort_values('cal_date').reset_index(drop=True)
     data['cal_date'] = pd.to_datetime(data['cal_date'])
     return data[(data['cal_date'] >= start_date) & (data['cal_date'] <= end_date) & (data['is_open'] == 1)]['cal_date'].tolist()
 
@@ -345,12 +341,12 @@ def get_cyq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=N
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'cyq-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -364,7 +360,7 @@ def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post
         fix_fields = ['ts_code', 'trade_date']
         fields = fix_fields + [f for f in fields if f not in fix_fields]
         fields1 = fields.copy()
-        if fq is not None:
+        if fq is not None and 'adj_factor' not in fields:
             fields1 = fields + ['adj_factor']
 
     # 提取数据
@@ -372,12 +368,12 @@ def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'etf-{d.strftime("%Y%m%d")}.parquet'), columns=fields1)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data)
+    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     # 复权操作
     if fq is not None:
         if fq == 'post':
@@ -397,7 +393,6 @@ def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post
             data['vol'] = data.eval('vol/adj_factor')
         except:
             pass
-    data = data.sort_values(['trade_date','ts_code']).reset_index(drop=True)
     if fields is None:
         return data
     else:
@@ -414,12 +409,12 @@ def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', field
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'future-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -436,12 +431,12 @@ def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'limit_list-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
@@ -458,12 +453,12 @@ def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'Tech-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
-            if isinstance(codes, list):
-                tmp = tmp[tmp['ts_code'].isin(codes)]
             data.append(tmp)
         except FileNotFoundError:
             continue
     data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
     if fields is None:
         return data
     else:
