@@ -464,7 +464,7 @@ def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
     else:
         return data[fields]
     
-def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/tech'):
+def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/industry/sw'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
