@@ -2,7 +2,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
-def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='data/daily_K'):
+def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/daily_K'):
 
     """
     codes: 股票代码列表；
@@ -53,7 +53,7 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
     else:
         return data[fields]
     
-def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/daily_basic'):
+def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/daily_basic'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -75,7 +75,7 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
     else:
         return data[fields]
 
-def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/index/index_daily_K'):
+def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_daily_K'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -97,7 +97,7 @@ def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-
     else:
         return data[fields]
     
-def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/index/index_daily_basic'):
+def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_daily_basic'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -119,7 +119,7 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
     else:
         return data[fields]
 
-def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/moneyflow'):
+def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/moneyflow'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -141,7 +141,7 @@ def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
     else:
         return data[fields]
 
-def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/rzrq'):
+def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/rzrq'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -163,7 +163,7 @@ def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=
     else:
         return data[fields]
 
-def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/toplist'):
+def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/toplist'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -185,7 +185,7 @@ def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
     else:
         return data[fields]
 
-def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='data/report_rc/raw_report'):
+def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/report_rc/raw_report'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code','report_date']
@@ -206,7 +206,7 @@ def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fie
     else:
         return data[fields]
 
-def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet', align_trade_date=True):
+def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/finance/sheet', align_trade_date=True):
     def get_report_date(date_input):
         dt = pd.to_datetime(date_input)
         year = dt.year
@@ -244,14 +244,14 @@ def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
             pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
             names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
         data = data[data['ann_date'].between(start_date, end_date)]
-        trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+        trade_cal = pd.to_datetime(pd.read_csv('C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv')['cal_date'].unique().tolist())
         data = data[data['ann_date'].isin(trade_cal)]
     if fields is None:
         return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     else:
         return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     
-def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/finance/sheet_ttm',align_trade_date=True):
+def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/finance/sheet_ttm',align_trade_date=True):
     def get_report_date(date_input):
         dt = pd.to_datetime(date_input)
         year = dt.year
@@ -289,14 +289,14 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
             pd.MultiIndex.from_product([data['ts_code'].unique(), pd.date_range(data['ann_date'].min(), end_date, freq='D')],
             names=['ts_code', 'ann_date'])).groupby(level='ts_code').ffill().reset_index()
         data = data[data['ann_date'].between(start_date, end_date)]
-        trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+        trade_cal = pd.to_datetime(pd.read_csv('C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv')['cal_date'].unique().tolist())
         data = data[data['ann_date'].isin(trade_cal)]
     if fields is None:
         return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     else:
         return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
     
-def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=[2025],  fields=None, data_path='data/report_rc/roll_data', align_trade_date=True):
+def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=[2025],  fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/report_rc/roll_data', align_trade_date=True):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'report_date','quarter']
@@ -313,7 +313,7 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
                 pd.MultiIndex.from_product([tmp['ts_code'].unique(), pd.date_range(tmp['report_date'].min(), end_date, freq='D')],
                 names=['ts_code', 'report_date'])).groupby(level='ts_code').ffill().reset_index()
             tmp = tmp[tmp['report_date'].between(start_date, end_date)]
-            trade_cal = pd.to_datetime(pd.read_csv('data/trade_cal.csv')['cal_date'].unique().tolist())
+            trade_cal = pd.to_datetime(pd.read_csv('C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv')['cal_date'].unique().tolist())
             tmp = tmp[tmp['report_date'].isin(trade_cal)]
         data.append(tmp)
     data = pd.concat(data).sort_values(['ts_code', 'report_date']).reset_index(drop=True)
@@ -325,12 +325,12 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
     else:
         return data[fields].rename(columns={'report_date':'trade_date'})
     
-def get_trade_cal(start_date='2023-03-01', end_date='2023-07-17', data_path='data/trade_cal.csv'):
+def get_trade_cal(start_date='2023-03-01', end_date='2023-07-17', data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv'):
     data = pd.read_csv(data_path).sort_values('cal_date').reset_index(drop=True)
     data['cal_date'] = pd.to_datetime(data['cal_date'])
     return data[(data['cal_date'] >= start_date) & (data['cal_date'] <= end_date) & (data['is_open'] == 1)]['cal_date'].tolist()
 
-def get_cyq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/cyq'):
+def get_cyq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/cyq'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -352,7 +352,7 @@ def get_cyq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=N
     else:
         return data[fields]
 
-def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='data/ETF'):
+def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/ETF'):
 
     # 筛选字段
     fields1 = None
@@ -398,7 +398,7 @@ def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post
     else:
         return data[fields]
     
-def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/future'):
+def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/future'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -420,7 +420,7 @@ def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', field
     else:
         return data[fields]
     
-def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/limit_list'):
+def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/limit_list'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -442,7 +442,29 @@ def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
     else:
         return data[fields]
 
-def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='data/tech'):
+def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/tech'):
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_parquet(os.path.join(data_path, f'Tech-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
+    if fields is None:
+        return data
+    else:
+        return data[fields]
+    
+def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/tech'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
