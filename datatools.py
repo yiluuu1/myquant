@@ -26,7 +26,7 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
     # 复权操作
@@ -48,10 +48,9 @@ def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='po
             data['vol'] = data.eval('vol/adj_factor')
         except:
             pass
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
     
 def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/daily_basic'):
     # 筛选字段
@@ -67,13 +66,12 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_daily_K'):
     # 筛选字段
@@ -89,13 +87,12 @@ def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     data['trade_date'] = pd.to_datetime(data['trade_date'])
     data = data[data['trade_date'].between(start_date, end_date)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
     
 def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_daily_basic'):
     # 筛选字段
@@ -111,13 +108,12 @@ def get_index_basic(codes=['000300.SH'], start_date='2023-03-01', end_date='2023
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     data['trade_date'] = pd.to_datetime(data['trade_date'])
     data = data[data['trade_date'].between(start_date, end_date)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/moneyflow'):
     # 筛选字段
@@ -133,13 +129,12 @@ def get_moneyflow(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/rzrq'):
     # 筛选字段
@@ -155,13 +150,12 @@ def get_rzrq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/toplist'):
     # 筛选字段
@@ -177,13 +171,12 @@ def get_toplist(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/report_rc/raw_report'):
     # 筛选字段
@@ -200,11 +193,10 @@ def get_report_rc(codes=None, start_date=None, end_date=None, year = '2025', fie
             data = data[data['report_date'].between(start_date, end_date)]
     except FileNotFoundError:
         pass
-    data = data.sort_values(['ts_code', 'report_date']).reset_index(drop=True)
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    data = data.sort_values(['ts_code', 'report_date'])
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/finance/sheet', align_trade_date=True):
     def get_report_date(date_input):
@@ -234,7 +226,7 @@ def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['ts_code', 'ann_date']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['ts_code', 'ann_date'])
     data = data.drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
@@ -246,10 +238,10 @@ def get_finance(codes=None, start_date='2023-03-01', end_date='2023-07-17', fiel
         data = data[data['ann_date'].between(start_date, end_date)]
         trade_cal = pd.to_datetime(pd.read_csv('C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv')['cal_date'].unique().tolist())
         data = data[data['ann_date'].isin(trade_cal)]
-    if fields is None:
-        return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
-    else:
-        return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    data = data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    if fields is not None:
+        data = data[fields]
+    return data.reset_index(drop=True)
     
 def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/finance/sheet_ttm',align_trade_date=True):
     def get_report_date(date_input):
@@ -279,7 +271,7 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['ts_code', 'ann_date']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['ts_code', 'ann_date'])
     data = data.drop_duplicates(subset=['ts_code', 'ann_date'], keep='last')
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
@@ -291,10 +283,10 @@ def get_finance_ttm(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
         data = data[data['ann_date'].between(start_date, end_date)]
         trade_cal = pd.to_datetime(pd.read_csv('C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv')['cal_date'].unique().tolist())
         data = data[data['ann_date'].isin(trade_cal)]
-    if fields is None:
-        return data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
-    else:
-        return data[fields].rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    data = data.rename(columns={'ann_date':'trade_date','end_date':'stat_date'})
+    if fields is not None:
+        data = data[fields]
+    return data.reset_index(drop=True)
     
 def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', year=[2025],  fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/report_rc/roll_data', align_trade_date=True):
     # 筛选字段
@@ -316,17 +308,17 @@ def get_report_roll(codes=None, start_date='2023-03-01', end_date='2023-07-17', 
             trade_cal = pd.to_datetime(pd.read_csv('C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv')['cal_date'].unique().tolist())
             tmp = tmp[tmp['report_date'].isin(trade_cal)]
         data.append(tmp)
-    data = pd.concat(data).sort_values(['ts_code', 'report_date']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['ts_code', 'report_date'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
     data['report_date'] = pd.to_datetime(data['report_date'])
-    if fields is None:
-        return data.rename(columns={'report_date':'trade_date'})
-    else:
-        return data[fields].rename(columns={'report_date':'trade_date'})
+    data = data.rename(columns={'report_date':'trade_date'})
+    if fields is not None:
+        data = data[fields]
+    return data.reset_index(drop=True)
     
 def get_trade_cal(start_date='2023-03-01', end_date='2023-07-17', data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/trade_cal.csv'):
-    data = pd.read_csv(data_path).sort_values('cal_date').reset_index(drop=True)
+    data = pd.read_csv(data_path).sort_values('cal_date')
     data['cal_date'] = pd.to_datetime(data['cal_date'])
     return data[(data['cal_date'] >= start_date) & (data['cal_date'] <= end_date) & (data['is_open'] == 1)]['cal_date'].tolist()
 
@@ -344,13 +336,12 @@ def get_cyq(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=N
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/ETF'):
 
@@ -371,7 +362,7 @@ def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
     # 复权操作
@@ -393,10 +384,9 @@ def get_ETF(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post
             data['vol'] = data.eval('vol/adj_factor')
         except:
             pass
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
     
 def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/future'):
     # 筛选字段
@@ -412,13 +402,12 @@ def get_future(codes=None, start_date='2023-03-01', end_date='2023-07-17', field
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
     
 def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/limit_list'):
     # 筛选字段
@@ -434,13 +423,12 @@ def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
 
 def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/tech'):
     # 筛选字段
@@ -456,13 +444,12 @@ def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
     
 def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/industry/sw'):
     # 筛选字段
@@ -478,10 +465,9 @@ def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
             data.append(tmp)
         except FileNotFoundError:
             continue
-    data = pd.concat(data).sort_values(['trade_date','ts_code']).reset_index(drop=True)
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
     if codes is not None:
         data = data[data['ts_code'].isin(codes)]
-    if fields is None:
-        return data
-    else:
-        return data[fields]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
