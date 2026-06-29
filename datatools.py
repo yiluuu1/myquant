@@ -1,6 +1,7 @@
 import pandas as pd
 import os
-from datetime import datetime
+import matplotlib.pyplot as plt
+import numpy as np
 
 def get_price(codes=None, start_date='2023-03-01', end_date='2023-07-17', fq='post', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/daily_K'):
 
@@ -471,3 +472,40 @@ def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
     if fields is not None:
         data =  data[fields]
     return data.reset_index(drop=True)
+
+def spilit_test(df_sample, factor_columns, change_freq, ret_col, n=10, cost = 2 * 0.0015):
+    df_sample = df_sample.sort_values('trade_date').iloc[::change_freq]
+    df_sample['group'] = df_sample.groupby('trade_date')[factor_columns].transform(
+        lambda x: pd.qcut(x.rank(method='first'), n, labels=False, duplicates='drop'))
+    # 计算每组每日的收益 Group 0 是预测最差的组，Group n_groups-1 是预测最好的组
+    group_ret = df_sample.groupby(['trade_date', 'group'])[ret_col].mean().unstack()
+    # 3. 处理换仓成本
+    group_ret = group_ret - cost
+    # 4. 计算多空对冲收益 (做多最好组，做空最差组)
+    group_ret['Long_Short'] = group_ret[n - 1] - group_ret[0]
+    # 5. 计算累计净值
+    group_nav = (1 + group_ret).cumprod()
+    
+    # 绘图
+    plt.rcParams['font.sans-serif'] = ['SimHei']
+    plt.rcParams['axes.unicode_minus'] = False
+    fig, axes = plt.subplots(2, 1, figsize=(12, 10), gridspec_kw={'height_ratios': [2, 1]})
+    # 子图1：各组净值曲线 (扇形图)
+    n_groups = len(group_nav.columns) - 1 # 减去 Long_Short 列
+    colors = plt.cm.coolwarm(np.linspace(0, 1, n_groups))
+    for i in range(0, n_groups, 1):
+        axes[0].plot(group_nav.index, group_nav[i], label=f'Group {i} (第{i+1}层)', color=colors[i], linewidth=1.5)
+    axes[0].set_title('分层回测净值曲线 (扇形图)', fontsize=14)
+    axes[0].set_ylabel('累计净值')
+    axes[0].legend(loc='upper left')
+    axes[0].grid(True, linestyle='--', alpha=0.6)
+    # 子图2：多空对冲净值曲线
+    axes[1].plot(group_nav.index, group_nav['Long_Short'], label='多空对冲', color='green', linewidth=2)
+    axes[1].axhline(y=1.0, color='black', linestyle='--', linewidth=0.8)
+    axes[1].set_title('多空对冲净值曲线', fontsize=14)
+    axes[1].set_xlabel('日期')
+    axes[1].set_ylabel('累计净值')
+    axes[1].legend(loc='upper left')
+    axes[1].grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.show()
