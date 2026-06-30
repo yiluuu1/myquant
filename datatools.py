@@ -509,3 +509,35 @@ def spilit_test(df_sample, factor_columns, change_freq, ret_col, n=10, cost = 2 
     axes[1].grid(True, linestyle='--', alpha=0.6)
     plt.tight_layout()
     plt.show()
+    
+
+def strategy_metrics(daily_return_df, benchmark, trades_df, annual_trading_days=252):
+    """
+    计算策略的夏普比率、最大回撤和胜率
+    参数:
+    daily_return_df : DataFrame, 包含 'trade_date' 和 'daily_return' 列
+    benchmark : str, 基准指数代码
+    trades_df : DataFrame, 包含 'ts_code', 'buy_price', 'buy_date', 'sell_price', 'sell_date' 列
+    annual_trading_days : int, 年化交易日数
+    返回:
+    dict, 包含 'sharpe_ratio', 'max_drawdown', 'win_rate'
+    """
+    # 1. 计算夏普比率
+    # 转换为日无风险收益率
+    
+    benchmark = get_index_K([benchmark], start_date=daily_return_df.trade_date.min(), end_date=daily_return_df.trade_date.max())
+    daily_rf = benchmark.pct_chg
+    excess_returns = daily_return_df['daily_return'] - daily_rf
+
+    sharpe_ratio = (excess_returns.mean() / excess_returns.std()) * (annual_trading_days ** 0.5)
+
+    cumulative_nav = (1 + daily_return_df['daily_return']).cumprod()
+    peak = cumulative_nav.expanding(min_periods=1).max()
+    drawdown = cumulative_nav / peak -1
+    max_drawdown = drawdown.min()
+
+    win_rate = (trades_df['sell_price'] > trades_df['buy_price']).sum() / len(trades_df)
+    return {
+        'sharpe_ratio': sharpe_ratio,
+        'max_drawdown': max_drawdown,
+        'win_rate': win_rate}
