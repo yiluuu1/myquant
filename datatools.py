@@ -473,7 +473,7 @@ def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
         data =  data[fields]
     return data.reset_index(drop=True)
 
-def spilit_test(df_sample, factor_columns, change_freq, ret_col, n=10, cost = 2 * 0.0015):
+def spilit_test(df_sample, factor_columns, ret_col, change_freq=1, n=10, cost = 2 * 0.0015):
     df_sample = df_sample.sort_values('trade_date').iloc[::change_freq]
     df_sample['group'] = df_sample.groupby('trade_date')[factor_columns].transform(
         lambda x: pd.qcut(x.rank(method='first'), n, labels=False, duplicates='drop'))
@@ -511,32 +511,40 @@ def spilit_test(df_sample, factor_columns, change_freq, ret_col, n=10, cost = 2 
     plt.show()
     
 
-def strategy_metrics(daily_return_df, benchmark, trades_df, annual_trading_days=252):
+def strategy_metrics(daily_return_df, benchmark, annual_trading_days=252, cost=0.003 / 38):
     """
     计算策略的夏普比率、最大回撤和胜率
     参数:
-    daily_return_df : DataFrame, 包含 'trade_date' 和 'daily_return' 列
+    daily_return_df : DataFrame, 包含 'trade_date' , 'ts_code','daily_return','buy_signal','buy_price','sell_date','sell_price' 列
     benchmark : str, 基准指数代码
-    trades_df : DataFrame, 包含 'ts_code', 'buy_price', 'buy_date', 'sell_price', 'sell_date' 列
     annual_trading_days : int, 年化交易日数
+    cost : float, 平均单日交易成本
     返回:
     dict, 包含 'sharpe_ratio', 'max_drawdown', 'win_rate'
     """
-    # 1. 计算夏普比率
-    # 转换为日无风险收益率
+    all_dates = pd.DataFrame(daily_return_df['trade_date'].sort_values().unique(), columns=['trade_date'])
+    trade_records = daily_return_df[(daily_return_df['buy_signal'] == 1)&(daily_return_df['sell_price'].notna())]
+    trade_records = trade_records[['ts_code', 'trade_date', 'buy_price', 'sell_date', 'sell_price', 'return_rate']]
+    holding_df = daily_return_df[['ts_code', 'trade_date', 'daily_return']].merge(trade_records[['ts_code', 'trade_date', 'sell_date']], 
+                        on='ts_code',  suffixes=('', '_buy'))
+    # 筛选实际的持仓区间：产生信号次日之后，到卖出日之前
+    holding_df = holding_df[(holding_df['trade_date'] > holding_df['trade_date_buy']) & 
+                            (holding_df['trade_date'] <= holding_df['sell_date'])]
+    # 4. 按交易日分组，计算当日所有持仓股票的等权日收益率
+    daily_strategy_ret = holding_df.groupby('trade_date')['daily_return'].mean().reset_index()
+    net_value_df = all_dates.merge(daily_strategy_ret, on='trade_date', how='left')
+    net_value_df = net_value_df[net_value_df['daily_return'].notna()]
+    net_value_df['daily_return'] -= cost
     
     benchmark = get_index_K([benchmark], start_date=daily_return_df.trade_date.min(), end_date=daily_return_df.trade_date.max())
     daily_rf = benchmark.pct_chg
     excess_returns = daily_return_df['daily_return'] - daily_rf
-
     sharpe_ratio = (excess_returns.mean() / excess_returns.std()) * (annual_trading_days ** 0.5)
-
     cumulative_nav = (1 + daily_return_df['daily_return']).cumprod()
-    peak = cumulative_nav.expanding(min_periods=1).max()
-    drawdown = cumulative_nav / peak -1
+    drawdown = cumulative_nav / cumulative_nav.expanding(min_periods=1).max() -1
     max_drawdown = drawdown.min()
 
-    win_rate = (trades_df['sell_price'] > trades_df['buy_price']).sum() / len(trades_df)
+    win_rate = (trade_records['sell_price'] > trade_records['buy_price']).sum() / len(trade_records)
     return {
         'sharpe_ratio': sharpe_ratio,
         'max_drawdown': max_drawdown,
