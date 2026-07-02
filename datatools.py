@@ -511,11 +511,13 @@ def spilit_test(df_sample, factor_columns, ret_col, change_freq=1, n=10, cost = 
     plt.show()
     
 
-def strategy_metrics(daily_return_df, benchmark, annual_trading_days=252, cost=0.003 / 38):
+def strategy_metrics(daily_return_df, trade_records,  benchmark, annual_trading_days=252, cost=None, 
+                     start_date=None, end_date=None):
     """
     计算策略的夏普比率、最大回撤和胜率
     参数:
-    daily_return_df : DataFrame, 包含 'trade_date' , 'ts_code','daily_return','buy_signal','buy_price','sell_date','sell_price' 列
+    daily_return_df : DataFrame, 包含 'trade_date', 'ts_code','daily_return' 列
+    trade_records : DataFrame, 交易记录, 包含 'ts_code', 'buy_date', 'buy_price', 'sell_date', 'sell_price' 列
     benchmark : str, 基准指数代码
     annual_trading_days : int, 年化交易日数
     cost : float, 平均单日交易成本
@@ -523,29 +525,34 @@ def strategy_metrics(daily_return_df, benchmark, annual_trading_days=252, cost=0
     dict, 包含 'sharpe_ratio', 'max_drawdown', 'win_rate'
     """
     all_dates = pd.DataFrame(daily_return_df['trade_date'].sort_values().unique(), columns=['trade_date'])
-    trade_records = daily_return_df[(daily_return_df['buy_signal'] == 1)&(daily_return_df['sell_price'].notna())]
-    trade_records = trade_records[['ts_code', 'trade_date', 'buy_price', 'sell_date', 'sell_price', 'return_rate']]
-    holding_df = daily_return_df[['ts_code', 'trade_date', 'daily_return']].merge(trade_records[['ts_code', 'trade_date', 'sell_date']], 
-                        on='ts_code',  suffixes=('', '_buy'))
-    # 筛选实际的持仓区间：产生信号次日之后，到卖出日之前
-    holding_df = holding_df[(holding_df['trade_date'] > holding_df['trade_date_buy']) & 
+    if start_date is not None and end_date is not None:
+        all_dates = all_dates[(all_dates['trade_date'] >= start_date) & (all_dates['trade_date'] <= end_date)]
+
+    holding_df = daily_return_df.merge(trade_records[['ts_code', 'buy_date', 'sell_date']], on='ts_code')
+    holding_df = holding_df[(holding_df['trade_date'] > holding_df['buy_date']) & 
                             (holding_df['trade_date'] <= holding_df['sell_date'])]
-    # 4. 按交易日分组，计算当日所有持仓股票的等权日收益率
+
     daily_strategy_ret = holding_df.groupby('trade_date')['daily_return'].mean().reset_index()
     net_value_df = all_dates.merge(daily_strategy_ret, on='trade_date', how='left')
-    net_value_df = net_value_df[net_value_df['daily_return'].notna()]
+    net_value_df = net_value_df.fillna(0)
+    if cost is None:
+        trade_records['trade_days'] = (trade_records['sell_date'] - trade_records['buy_date']).dt.days * 2 /3
+        cost = 2 * 0.0015 /  trade_records['trade_days'].mean() 
     net_value_df['daily_return'] -= cost
     
-    benchmark = get_index_K([benchmark], start_date=daily_return_df.trade_date.min(), end_date=daily_return_df.trade_date.max())
-    daily_rf = benchmark.pct_chg
-    excess_returns = daily_return_df['daily_return'] - daily_rf
-    sharpe_ratio = (excess_returns.mean() / excess_returns.std()) * (annual_trading_days ** 0.5)
-    cumulative_nav = (1 + daily_return_df['daily_return']).cumprod()
-    drawdown = cumulative_nav / cumulative_nav.expanding(min_periods=1).max() -1
+    benchmark = get_index_K([benchmark], start_date=net_value_df.trade_date.min(), end_date=net_value_df.trade_date.max(), fields=['pct_chg'])
+    benchmark['pct_chg'] /= 100
+    benchmark = benchmark.rename(columns={'pct_chg': 'benchmark_return'}).drop(columns=['ts_code'])
+    df_res = net_value_df.merge(benchmark, on='trade_date', how='left')
+    df_res['excess_returns'] = df_res['daily_return'] - df_res['benchmark_return']
+    sharpe_ratio = (df_res['excess_returns'].mean() / df_res['excess_returns'].std()) * (annual_trading_days ** 0.5)
+    df_res['cum_nav'] = (1 + net_value_df['daily_return']).cumprod()
+    df_res['cum_bench_nav'] = (1 + df_res['benchmark_return']).cumprod()
+    df_res['cum_excess_nav'] = (1 + df_res['excess_returns']).cumprod()
+
+    drawdown = df_res['cum_nav'] / df_res['cum_nav'].expanding(min_periods=1).max() -1
     max_drawdown = drawdown.min()
 
     win_rate = (trade_records['sell_price'] > trade_records['buy_price']).sum() / len(trade_records)
-    return {
-        'sharpe_ratio': sharpe_ratio,
-        'max_drawdown': max_drawdown,
-        'win_rate': win_rate}
+    
+    return {'sharpe_ratio': sharpe_ratio, 'max_drawdown': max_drawdown, 'win_rate': win_rate}, df_res
