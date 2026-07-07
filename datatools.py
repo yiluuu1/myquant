@@ -74,7 +74,7 @@ def get_basic(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields
         data =  data[fields]
     return data.reset_index(drop=True)
 
-def get_index_K(codes=['000300.SH'], start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_daily_K'):
+def get_index_K(codes, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_daily_K'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
