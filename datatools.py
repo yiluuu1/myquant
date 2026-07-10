@@ -511,48 +511,132 @@ def spilit_test(df_sample, factor_columns, ret_col, change_freq=1, n=10, cost = 
     plt.show()
     
 
-def strategy_metrics(daily_return_df, trade_records,  benchmark, annual_trading_days=252, cost=None, 
-                     start_date=None, end_date=None):
+import pandas as pd
+import numpy as np
+
+def strategy_metrics(daily_return_df, trade_records, safe_return=0.04, benchmark='000300.SH', annual_trading_days=252, 
+                     cost=0.001, start_date=None, end_date=None, max_dd_trigger=0.10, weight_col=None, cooldown_days=5, 
+                     recovery_mode='new_high'):
     """
-    计算策略的夏普比率、最大回撤和胜率
+    计算策略的夏普比率、最大回撤和胜率，支持自定义权重和风控清仓
+    
     参数:
     daily_return_df : DataFrame, 包含 'trade_date', 'ts_code','daily_return' 列
-    trade_records : DataFrame, 交易记录, 包含 'ts_code', 'buy_date', 'buy_price', 'sell_date', 'sell_price' 列
+    trade_records : DataFrame, 交易记录, 包含 'ts_code', 'buy_date', 'sell_date' 列。可选包含权重列
+    safe_return : float, 无风险利率
     benchmark : str, 基准指数代码
     annual_trading_days : int, 年化交易日数
     cost : float, 平均单日交易成本
-    返回:
-    dict, 包含 'sharpe_ratio', 'max_drawdown', 'win_rate'
+    max_dd_trigger : float or None, 最大回撤风控阈值(如0.10表示10%)。设为None则关闭风控
+    weight_col : str or None, trade_records中代表持仓权重的列名。若为None则等权计算
+    cooldown_days=5: 触发清仓后强制空仓的天数
+    recovery_mode: 恢复模式。'new_high'表示净值创5日新高才恢复; 'cooldown'表示冷却期一到直接恢复
     """
+    # 1. 获取时间轴
     all_dates = pd.DataFrame(daily_return_df['trade_date'].sort_values().unique(), columns=['trade_date'])
     if start_date is not None and end_date is not None:
         all_dates = all_dates[(all_dates['trade_date'] >= start_date) & (all_dates['trade_date'] <= end_date)]
 
-    holding_df = daily_return_df.merge(trade_records[['ts_code', 'buy_date', 'sell_date']], on='ts_code')
+    # 2. 合并持仓与收益，支持自定义权重
+    cols_to_merge = ['ts_code', 'buy_date', 'sell_date']
+    if weight_col:
+        cols_to_merge.append(weight_col)
+        
+    holding_df = daily_return_df.merge(trade_records[cols_to_merge], on='ts_code')
     holding_df = holding_df[(holding_df['trade_date'] > holding_df['buy_date']) & 
                             (holding_df['trade_date'] <= holding_df['sell_date'])]
 
-    daily_strategy_ret = holding_df.groupby('trade_date')['daily_return'].mean().reset_index()
+    # 计算每日策略收益
+    if weight_col:
+        # 截面归一化权重（确保每天所有持仓权重之和为1）
+        holding_df['weighted_ret'] = holding_df['daily_return'] * holding_df[weight_col]
+        daily_strategy_ret = holding_df.groupby('trade_date')['weighted_ret'].sum().reset_index()
+    else:
+        # 默认等权
+        daily_strategy_ret = holding_df.groupby('trade_date')['daily_return'].mean().reset_index()
+
+    # 3. 构建初始净值表并扣减成本
     net_value_df = all_dates.merge(daily_strategy_ret, on='trade_date', how='left')
     net_value_df = net_value_df.fillna(0)
-    if cost is None:
-        trade_records['trade_days'] = (trade_records['sell_date'] - trade_records['buy_date']).dt.days * 2 /3
-        cost = 2 * 0.0015 /  trade_records['trade_days'].mean() 
     net_value_df['daily_return'] -= cost
+    net_value_df['cum_virtual_navs'] = (1 + net_value_df['daily_return']).cumprod()
+     # ============ 4. 风控模块与净值计算 (状态机推进) ============
+    nav = 1.0               # 真实净值（清仓时为水平直线）
+    virtual_nav = 1.0       # 虚拟净值（假设未空仓，仅用于判断恢复信号）
+    peak = 1.0              # 历史最高真实净值
+    cum_navs = []
+    is_halted = False
+    halt_days = 0
+    recovery_lookback = 5   # 突破过去5日高点即恢复
     
-    benchmark = get_index_K([benchmark], start_date=net_value_df.trade_date.min(), end_date=net_value_df.trade_date.max(), fields=['pct_chg'])
-    benchmark['pct_chg'] /= 100
-    benchmark = benchmark.rename(columns={'pct_chg': 'benchmark_return'}).drop(columns=['ts_code'])
-    df_res = net_value_df.merge(benchmark, on='trade_date', how='left')
-    df_res['excess_returns'] = df_res['daily_return'] - df_res['benchmark_return']
-    sharpe_ratio = (df_res['excess_returns'].mean() / df_res['excess_returns'].std()) * (annual_trading_days ** 0.5)
-    df_res['cum_nav'] = (1 + net_value_df['daily_return']).cumprod()
-    df_res['cum_bench_nav'] = (1 + df_res['benchmark_return']).cumprod()
-    df_res['cum_excess_nav'] = (1 + df_res['excess_returns']).cumprod()
+    for _, row in net_value_df.iterrows():
+        # 1. 虚拟净值永远正常推进，不管是否空仓
 
-    drawdown = df_res['cum_nav'] / df_res['cum_nav'].expanding(min_periods=1).max() -1
+        if is_halted:
+            # 处于空仓状态，真实收益严格为0
+            daily_ret = 0.0
+            halt_days += 1
+            
+            # 判断是否满足恢复条件
+            if halt_days >= cooldown_days:
+                if recovery_mode == 'cooldown':
+                    # 冷却期一到，无条件恢复
+                    is_halted = False
+                    halt_days = 0
+                elif recovery_mode == 'breakout':  # 替换原'new_high'
+                    # 只要虚拟净值突破近 N 日高点，说明策略逻辑企稳反弹
+                    if len(cum_virtual_navs) > recovery_lookback:
+                        recent_max = max(cum_virtual_navs[-(recovery_lookback+1):-1])
+                        if virtual_nav > recent_max:
+                            is_halted = False
+                            halt_days = 0
+                            # 注意：这里绝对不修改 nav，真实净值从空仓时的水平线重新开始计提
+                    else:
+                        # 历史数据不足N天时，冷却期到直接恢复
+                        is_halted = False
+                        halt_days = 0
+        else:
+            # 正常持仓，真实收益等于虚拟收益
+            daily_ret = row['daily_return']
+            
+        # 2. 更新真实净值（空仓时 daily_ret=0，nav 保持不变）
+        nav *= (1 + daily_ret)
+        peak = max(peak, nav)
+        drawdown = nav / peak - 1
+        
+        # 3. 检查是否触发风控清仓
+        if not is_halted and drawdown <= -max_dd_trigger:
+            is_halted = True
+            halt_days = 1
+        
+        cum_navs.append(nav)
+        
+    net_value_df['cum_nav'] = cum_navs
+
+    # ============ 5. 指标计算 ============
+    return_annual = net_value_df['cum_nav'].iloc[-1] ** (annual_trading_days/len(net_value_df)) - 1
+    volatility_annual = net_value_df['daily_return'].std() * np.sqrt(annual_trading_days)
+    sharpe_ratio = (return_annual - safe_return) / volatility_annual
+    
+    drawdown = net_value_df['cum_nav'] / net_value_df['cum_nav'].expanding().max() - 1
     max_drawdown = drawdown.min()
 
     win_rate = (trade_records['sell_price'] > trade_records['buy_price']).sum() / len(trade_records)
     
-    return {'sharpe_ratio': sharpe_ratio, 'max_drawdown': max_drawdown, 'win_rate': win_rate}, df_res
+    # 基准与超额收益计算
+    benchmark_df = get_index_K([benchmark], start_date=net_value_df.trade_date.min(), end_date=net_value_df.trade_date.max(), fields=['pct_chg'])
+    benchmark_df['pct_chg']  /= 100
+    benchmark_df = benchmark_df.rename(columns={'pct_chg': 'benchmark_return'}).drop(columns=['ts_code'])
+    net_value_df = net_value_df.merge(benchmark_df, on='trade_date', how='left')
+    
+    net_value_df['excess_returns'] = net_value_df['daily_return'] - net_value_df['benchmark_return']
+    net_value_df['cum_bench_nav'] = (1 + net_value_df['benchmark_return']).cumprod()
+    net_value_df['cum_excess_nav'] = (1 + net_value_df['excess_returns']).cumprod()
+    
+    bench_annual = net_value_df['cum_bench_nav'].iloc[-1] ** (annual_trading_days/len(net_value_df)) - 1
+    excess_volatility_annual = net_value_df['excess_returns'].std() * np.sqrt(annual_trading_days)
+    information_ratio = (return_annual - bench_annual) / excess_volatility_annual
+
+    return {'sharpe_ratio': sharpe_ratio, 'max_drawdown': max_drawdown, 
+            'win_rate': win_rate, 'information_ratio': information_ratio,
+            'risk_control_halted': is_halted}, net_value_df
