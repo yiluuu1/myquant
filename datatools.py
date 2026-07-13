@@ -515,8 +515,7 @@ import pandas as pd
 import numpy as np
 
 def strategy_metrics(daily_return_df, trade_records, safe_return=0.04, benchmark='000300.SH', annual_trading_days=252, 
-                     cost=0.001, start_date=None, end_date=None, max_dd_trigger=0.10, weight_col=None, cooldown_days=5, 
-                     recovery_mode='new_high'):
+                     cost=0.001, start_date=None, end_date=None, max_dd_trigger=0.10, weight_col=None):
     """
     计算策略的夏普比率、最大回撤和胜率，支持自定义权重和风控清仓
     
@@ -559,58 +558,39 @@ def strategy_metrics(daily_return_df, trade_records, safe_return=0.04, benchmark
     net_value_df = all_dates.merge(daily_strategy_ret, on='trade_date', how='left')
     net_value_df = net_value_df.fillna(0)
     net_value_df['daily_return'] -= cost
-    net_value_df['cum_virtual_navs'] = (1 + net_value_df['daily_return']).cumprod()
+
      # ============ 4. 风控模块与净值计算 (状态机推进) ============
     nav = 1.0               # 真实净值（清仓时为水平直线）
     virtual_nav = 1.0       # 虚拟净值（假设未空仓，仅用于判断恢复信号）
     peak = 1.0              # 历史最高真实净值
     cum_navs = []
+    virtual_navs_hist = []  
     is_halted = False
-    halt_days = 0
-    recovery_lookback = 5   # 突破过去5日高点即恢复
-    
     for _, row in net_value_df.iterrows():
         # 1. 虚拟净值永远正常推进，不管是否空仓
-
+        virtual_nav *= (1 + row['daily_return'])
+        virtual_navs_hist.append(virtual_nav)
+        
         if is_halted:
             # 处于空仓状态，真实收益严格为0
             daily_ret = 0.0
-            halt_days += 1
-            
             # 判断是否满足恢复条件
-            if halt_days >= cooldown_days:
-                if recovery_mode == 'cooldown':
-                    # 冷却期一到，无条件恢复
-                    is_halted = False
-                    halt_days = 0
-                elif recovery_mode == 'breakout':  # 替换原'new_high'
-                    # 只要虚拟净值突破近 N 日高点，说明策略逻辑企稳反弹
-                    if len(cum_virtual_navs) > recovery_lookback:
-                        recent_max = max(cum_virtual_navs[-(recovery_lookback+1):-1])
-                        if virtual_nav > recent_max:
-                            is_halted = False
-                            halt_days = 0
-                            # 注意：这里绝对不修改 nav，真实净值从空仓时的水平线重新开始计提
-                    else:
-                        # 历史数据不足N天时，冷却期到直接恢复
-                        is_halted = False
-                        halt_days = 0
+            if virtual_nav > max(virtual_navs_hist[-6:-1]):
+                is_halted = False
         else:
             # 正常持仓，真实收益等于虚拟收益
             daily_ret = row['daily_return']
             
         # 2. 更新真实净值（空仓时 daily_ret=0，nav 保持不变）
         nav *= (1 + daily_ret)
-        peak = max(peak, nav)
-        drawdown = nav / peak - 1
-        
-        # 3. 检查是否触发风控清仓
-        if not is_halted and drawdown <= -max_dd_trigger:
-            is_halted = True
-            halt_days = 1
-        
         cum_navs.append(nav)
         
+        # 检查是否触发风控清仓
+        peak = max(peak, nav)
+        drawdown = nav / peak - 1
+        if drawdown <= -max_dd_trigger:
+            is_halted = True
+
     net_value_df['cum_nav'] = cum_navs
 
     # ============ 5. 指标计算 ============
