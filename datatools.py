@@ -474,7 +474,9 @@ def get_industry_K(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
     return data.reset_index(drop=True)
 
 def spilit_test(df_sample, factor_columns, ret_col, change_freq=1, n=10, cost = 2 * 0.0015):
-    df_sample = df_sample.sort_values('trade_date').iloc[::change_freq]
+    unique_dates = df_sample['trade_date'].drop_duplicates().sort_values().reset_index(drop=True)
+    signal_dates = set(unique_dates[(unique_dates.index) % change_freq == 0])
+    df_sample = df_sample[df_sample['trade_date'].isin(signal_dates)]
     df_sample['group'] = df_sample.groupby('trade_date')[factor_columns].transform(
         lambda x: pd.qcut(x.rank(method='first'), n, labels=False, duplicates='drop'))
     # 计算每组每日的收益 Group 0 是预测最差的组，Group n_groups-1 是预测最好的组
@@ -537,11 +539,8 @@ def strategy_metrics(daily_return_df, trade_records, safe_return=0.04, benchmark
         all_dates = all_dates[(all_dates['trade_date'] >= start_date) & (all_dates['trade_date'] <= end_date)]
 
     # 2. 合并持仓与收益，支持自定义权重
-    cols_to_merge = ['ts_code', 'buy_date', 'sell_date']
-    if weight_col:
-        cols_to_merge.append(weight_col)
         
-    holding_df = daily_return_df.merge(trade_records[cols_to_merge], on='ts_code')
+    holding_df = daily_return_df.merge(trade_records, on='ts_code')
     holding_df = holding_df[(holding_df['trade_date'] > holding_df['buy_date']) & 
                             (holding_df['trade_date'] <= holding_df['sell_date'])]
 
@@ -566,29 +565,25 @@ def strategy_metrics(daily_return_df, trade_records, safe_return=0.04, benchmark
     cum_navs = []
     virtual_navs_hist = []  
     is_halted = False
-    for _, row in net_value_df.iterrows():
+    for idx, _ in net_value_df.iterrows():
         # 1. 虚拟净值永远正常推进，不管是否空仓
-        virtual_nav *= (1 + row['daily_return'])
+        virtual_nav *= (1 + net_value_df.loc[idx, 'daily_return'])
         virtual_navs_hist.append(virtual_nav)
         
         if is_halted:
-            # 处于空仓状态，真实收益严格为0
-            daily_ret = 0.0
-            # 判断是否满足恢复条件
             if virtual_nav > max(virtual_navs_hist[-6:-1]):
                 is_halted = False
-        else:
-            # 正常持仓，真实收益等于虚拟收益
-            daily_ret = row['daily_return']
+            else:
+                net_value_df.loc[idx, 'daily_return'] = 0.0
             
         # 2. 更新真实净值（空仓时 daily_ret=0，nav 保持不变）
-        nav *= (1 + daily_ret)
+        nav *= (1 + net_value_df.loc[idx, 'daily_return'])
         cum_navs.append(nav)
         
         # 检查是否触发风控清仓
         peak = max(peak, nav)
         drawdown = nav / peak - 1
-        if drawdown <= -max_dd_trigger:
+        if not is_halted and drawdown <= -max_dd_trigger:
             is_halted = True
 
     net_value_df['cum_nav'] = cum_navs
@@ -618,5 +613,4 @@ def strategy_metrics(daily_return_df, trade_records, safe_return=0.04, benchmark
     information_ratio = (return_annual - bench_annual) / excess_volatility_annual
 
     return {'sharpe_ratio': sharpe_ratio, 'max_drawdown': max_drawdown, 
-            'win_rate': win_rate, 'information_ratio': information_ratio,
-            'risk_control_halted': is_halted}, net_value_df
+            'win_rate': win_rate, 'information_ratio': information_ratio}, net_value_df
