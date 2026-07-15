@@ -485,7 +485,7 @@ def get_st(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=No
     data = []
     for d in pd.date_range(start=start_date, end=end_date):
         try:
-            tmp = pd.read_parquet(os.path.join(data_path, f'Tech-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
+            tmp = pd.read_parquet(os.path.join(data_path, f'stock_st-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
             data.append(tmp)
         except FileNotFoundError:
             continue
