@@ -431,9 +431,7 @@ def get_limit_list(codes=None, start_date='2023-03-01', end_date='2023-07-17', f
         data =  data[fields]
     return data.reset_index(drop=True)
 
-def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, if_index=False, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/tech'):
-    if if_index:
-        data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_tech'
+def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/tech'):
     # 筛选字段
     if fields is not None:
         fix_fields = ['ts_code', 'trade_date']
@@ -444,6 +442,27 @@ def get_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fi
     for d in pd.date_range(start=start_date, end=end_date):
         try:
             tmp = pd.read_parquet(os.path.join(data_path, f'Tech-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
+            data.append(tmp)
+        except FileNotFoundError:
+            continue
+    data = pd.concat(data).sort_values(['trade_date','ts_code'])
+    if codes is not None:
+        data = data[data['ts_code'].isin(codes)]
+    if fields is not None:
+        data =  data[fields]
+    return data.reset_index(drop=True)
+
+def get_index_technical(codes=None, start_date='2023-03-01', end_date='2023-07-17', fields=None, data_path='C:/Users/User/OneDrive - CUHK-Shenzhen/data/index/index_tech'):
+    # 筛选字段
+    if fields is not None:
+        fix_fields = ['ts_code', 'trade_date']
+        fields = fix_fields + [f for f in fields if f not in fix_fields]
+
+    # 提取数据
+    data = []
+    for d in pd.date_range(start=start_date, end=end_date):
+        try:
+            tmp = pd.read_parquet(os.path.join(data_path, f'index_tech-{d.strftime("%Y%m%d")}.parquet'), columns=fields)
             data.append(tmp)
         except FileNotFoundError:
             continue
